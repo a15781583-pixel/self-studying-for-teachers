@@ -1,4 +1,4 @@
-/* ===========================
+\/* ===========================
    Step 2: localStorage データ管理関数
 =========================== */
 
@@ -8,7 +8,6 @@ function getStudentData(studentId) {
   const jsonStr = localStorage.getItem(key);
 
   if (!jsonStr) {
-    // データが存在しない場合の初期オブジェクト構造
     return {
       studentId: studentId,
       createdAt: new Date().toISOString().split('T')[0],
@@ -37,7 +36,6 @@ function getStudentData(studentId) {
 function saveStudentData(studentData) {
   if (!studentData || !studentData.studentId) return;
   
-  // 最終更新日を更新
   studentData.updatedAt = new Date().toISOString().split('T')[0];
   
   const key = `student_data_${studentData.studentId}`;
@@ -115,7 +113,6 @@ let currentIndex   = 0;
 let students       = [createStudent()];
 
 function createTestEntry() {
-  // type(種類)、grade(対応学年)、date(実施日)、scores(点数) に変更
   return { type: '', grade: '', date: '', scores: '' };
 }
 
@@ -124,14 +121,685 @@ function createStudent() {
   const data = {};
   FIELD_IDS.forEach(id => { data[id] = ''; });
   data.subjects = [];
-  data.tests    = [createTestEntry()]; // テスト結果を配列で管理
+  data.tests    = [createTestEntry()];
   return {
-    id:          Date.now() + Math.random(),
-    defaultName: `生徒 ${num}`,
-    tabName:     `生徒 ${num}`,
+    id:               Date.now() + Math.random(),
+    defaultName:      `生徒 ${num}`,
+    tabName:          `生徒 ${num}`,
     data,
-    result: null,
+    result:           null,          // AI診断レポート結果
+    lessonPlanResult: null,          // 次回授業案の結果
+    lastResultType:   'diagnosis',   // 'diagnosis' | 'lessonplan' — 右パネルに最後に表示した種類
+    mode:             'profile',     // 'profile' | 'report' | 'history'
+    modeInitialized:  false,         // 初回タブ表示時に detectMode() で上書きするフラグ
   };
+}
+
+/* ===========================
+   Step 1: モード管理（フロー分岐）
+=========================== */
+
+/**
+ * localStorageの授業ログ有無でモードを自動判別する。
+ * lessonLogs が 1 件以上あれば 'report'、なければ 'profile' を返す。
+ */
+function detectMode(studentId) {
+  const data = getStudentData(studentId);
+  return (data && data.lessonLogs.length > 0) ? 'report' : 'profile';
+}
+
+/** サブナビゲーション用スタイルを <head> に一度だけ注入する */
+function injectSubNavStyles() {
+  if (document.getElementById('sub-nav-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'sub-nav-styles';
+  style.textContent = `
+    .sub-nav {
+      display: flex;
+      gap: 4px;
+      padding: 10px 12px 8px;
+      border-bottom: 1px solid var(--border, #e5e7eb);
+      background: var(--bg, #fff);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .sub-nav-btn {
+      flex: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      padding: 7px 4px;
+      border: 1px solid var(--border, #d1d5db);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-muted, #6b7280);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      white-space: nowrap;
+    }
+    .sub-nav-btn:hover {
+      background: var(--surface-hover, #f3f4f6);
+      color: var(--text, #111827);
+    }
+    .sub-nav-btn.active {
+      background: var(--primary, #4f46e5);
+      border-color: var(--primary, #4f46e5);
+      color: #fff;
+    }
+    .history-empty {
+      padding: 40px 16px;
+      text-align: center;
+      color: var(--text-muted, #9ca3af);
+      font-size: 14px;
+    }
+    .history-section-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 16px 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted, #6b7280);
+      border-bottom: 1px solid var(--border, #e5e7eb);
+      margin: 0;
+    }
+    .history-card {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border, #f3f4f6);
+    }
+    .history-card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+      flex-wrap: wrap;
+    }
+    .history-date {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted, #6b7280);
+    }
+    .history-score {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--primary, #4f46e5);
+    }
+    .history-subject {
+      font-size: 11px;
+      color: var(--text-muted, #6b7280);
+      background: var(--surface-hover, #f3f4f6);
+      padding: 2px 8px;
+      border-radius: 12px;
+    }
+    .history-comp {
+      font-size: 11px;
+      color: var(--text-muted, #6b7280);
+    }
+    .history-card-body {
+      font-size: 12px;
+      color: var(--text, #374151);
+      line-height: 1.5;
+    }
+    #section-history {
+      overflow-y: auto;
+    }
+
+    /* ── アコーディオン ── */
+    .accordion-list {
+      border-top: 1px solid var(--border, #e5e7eb);
+    }
+    .accordion-item {
+      border-bottom: 1px solid var(--border, #e5e7eb);
+    }
+    .accordion-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      cursor: pointer;
+      gap: 8px;
+      user-select: none;
+      transition: background 0.15s;
+    }
+    .accordion-header:hover {
+      background: var(--surface-hover, #f9fafb);
+    }
+    .accordion-header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      min-width: 0;
+      flex: 1;
+    }
+    .accordion-icon {
+      font-size: 13px;
+      color: var(--text-muted, #9ca3af);
+      transition: transform 0.2s;
+      flex-shrink: 0;
+    }
+    .accordion-item.is-open .accordion-icon {
+      transform: rotate(90deg);
+    }
+    .accordion-body {
+      display: none;
+      padding: 4px 16px 12px 36px;
+      font-size: 12px;
+      color: var(--text, #374151);
+      line-height: 1.6;
+    }
+    .accordion-item.is-open .accordion-body {
+      display: block;
+    }
+    .accordion-field {
+      margin-bottom: 4px;
+    }
+    .accordion-field-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted, #6b7280);
+    }
+    .accordion-comp-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .accordion-comp-num {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--primary, #4f46e5);
+      white-space: nowrap;
+    }
+    .mini-bar {
+      display: inline-block;
+      width: 80px;
+      height: 6px;
+      background: var(--border, #e5e7eb);
+      border-radius: 3px;
+      overflow: hidden;
+      vertical-align: middle;
+    }
+    .mini-bar-fill {
+      display: block;
+      height: 100%;
+      background: var(--primary, #4f46e5);
+      border-radius: 3px;
+    }
+
+    /* ── 直近AI診断バッジ ── */
+    .diag-badge-wrapper {
+      padding: 14px 16px 4px;
+    }
+    .diag-badge-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted, #6b7280);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .diag-badge {
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      border-radius: 12px;
+      padding: 14px 16px;
+      color: #fff;
+      margin-bottom: 4px;
+    }
+    .diag-badge-score {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .diag-badge-stars {
+      font-size: 15px;
+      letter-spacing: 2px;
+      opacity: 0.95;
+    }
+    .diag-badge-num {
+      font-size: 26px;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .diag-badge-num small {
+      font-size: 12px;
+      font-weight: 400;
+      opacity: 0.75;
+    }
+    .diag-badge-diff {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.2);
+    }
+    .diag-badge-diff.down {
+      background: rgba(0,0,0,0.18);
+    }
+    .diag-badge-comment {
+      font-size: 12px;
+      opacity: 0.9;
+      line-height: 1.55;
+      margin-bottom: 6px;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .diag-badge-date {
+      font-size: 10px;
+      opacity: 0.65;
+    }
+    .diag-score-badge {
+      font-size: 11px;
+      font-weight: 600;
+      background: var(--primary, #4f46e5);
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 20px;
+      flex-shrink: 0;
+    }
+
+    /* ── 理解度グラフ ── */
+    .chart-container {
+      padding: 4px 16px 8px;
+    }
+    #comp-chart {
+      display: block;
+      width: 100%;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+/** form-panel 上部にサブナビゲーションを挿入する */
+function renderSubNav() {
+  const panel = document.getElementById('form-panel');
+  if (!panel) return;
+
+  const existing = document.getElementById('sub-nav');
+  if (existing) existing.remove();
+
+  const nav = document.createElement('div');
+  nav.id = 'sub-nav';
+  nav.className = 'sub-nav';
+  nav.innerHTML = `
+    <button type="button" class="sub-nav-btn" data-mode="profile">
+      <i class="ti ti-user"></i> 基本情報
+    </button>
+    <button type="button" class="sub-nav-btn" data-mode="report">
+      <i class="ti ti-book"></i> 授業記録
+    </button>
+    <button type="button" class="sub-nav-btn" data-mode="history">
+      <i class="ti ti-history"></i> 履歴
+    </button>
+  `;
+
+  panel.insertBefore(nav, panel.firstChild);
+
+  nav.querySelectorAll('.sub-nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchMode(btn.dataset.mode));
+  });
+
+  updateSubNavActive(students[currentIndex]?.mode || 'profile');
+}
+
+/** サブナビのアクティブ状態を現在の mode に合わせて同期する */
+function updateSubNavActive(mode) {
+  document.querySelectorAll('#sub-nav .sub-nav-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+}
+
+/**
+ * form-panel の直下子要素に data-section 属性を付与してセクションを分割する。
+ * 初回のみ実行（data-sections-init 属性で二重実行を防止）。
+ *
+ * 基本情報（profile）: f-name / f-grade / f-goal / f-concerns / subjects
+ * 授業記録（report） : f-comp / comp-scale / f-attitude / f-notes /
+ *                     test-list / test-add-btn / gen-btn / api-key
+ * 未分類の子要素は report に振り分ける。
+ */
+function initSections() {
+  const panel = document.getElementById('form-panel');
+  if (!panel || panel.hasAttribute('data-sections-init')) return;
+  panel.setAttribute('data-sections-init', '1');
+
+  const PROFILE_IDS = ['f-name', 'f-grade', 'f-goal', 'f-concerns', 'subjects'];
+  const REPORT_IDS  = ['f-comp', 'comp-scale', 'f-attitude', 'f-notes',
+                       'test-list', 'test-add-btn', 'gen-btn', 'api-key'];
+
+  /** 指定 ID を含む form-panel 直下の子要素を返す */
+  function findPanelDirectChild(id) {
+    const el = document.getElementById(id);
+    if (!el) return null;
+    let node = el;
+    while (node.parentElement && node.parentElement !== panel) {
+      node = node.parentElement;
+    }
+    return node.parentElement === panel ? node : null;
+  }
+
+  const profileSet = new Set();
+  const reportSet  = new Set();
+
+  PROFILE_IDS.forEach(id => {
+    const el = findPanelDirectChild(id);
+    if (el && el.id !== 'sub-nav') profileSet.add(el);
+  });
+
+  REPORT_IDS.forEach(id => {
+    const el = findPanelDirectChild(id);
+    if (el && el.id !== 'sub-nav') reportSet.add(el);
+  });
+
+  // 両方に含まれる要素は report 優先
+  profileSet.forEach(el => {
+    el.setAttribute('data-section', reportSet.has(el) ? 'report' : 'profile');
+  });
+  reportSet.forEach(el => {
+    if (!el.hasAttribute('data-section')) el.setAttribute('data-section', 'report');
+  });
+
+  // 未分類の子要素は report に振り分け
+  [...panel.children].forEach(child => {
+    if (child.id !== 'sub-nav' && !child.hasAttribute('data-section')) {
+      child.setAttribute('data-section', 'report');
+    }
+  });
+
+  // 履歴セクションを動的に追加
+  if (!document.getElementById('section-history')) {
+    const historySec = document.createElement('div');
+    historySec.id = 'section-history';
+    historySec.className = 'mode-section';
+    historySec.setAttribute('data-section', 'history');
+    panel.appendChild(historySec);
+  }
+}
+
+/** mode に応じて form-panel 内のセクションを表示 / 非表示にする */
+function showModeSection(mode) {
+  const panel = document.getElementById('form-panel');
+  if (!panel) return;
+
+  [...panel.children].forEach(child => {
+    if (child.id === 'sub-nav') return;
+    const section = child.getAttribute('data-section');
+    if (section) child.style.display = (section === mode) ? '' : 'none';
+  });
+
+  if (mode === 'history') renderHistoryView();
+}
+
+/** サブナビボタン押下時: フォームを保存してモードを切り替える */
+function switchMode(mode) {
+  saveCurrentForm();
+  students[currentIndex].mode = mode;
+  updateSubNavActive(mode);
+  showModeSection(mode);
+}
+
+/** 履歴セクションに localStorage の過去データを描画する */
+function renderHistoryView() {
+  const historySec = document.getElementById('section-history');
+  if (!historySec) return;
+
+  const s    = students[currentIndex];
+  const name = (s.data['f-name'] || '').trim();
+
+  if (!name) {
+    historySec.innerHTML = '<p class="history-empty">生徒名を入力すると履歴が表示されます。</p>';
+    return;
+  }
+
+  const studentId = 'std_' + encodeURIComponent(name);
+  const pastData  = getStudentData(studentId);
+
+  if (!pastData ||
+      (pastData.lessonLogs.length === 0 && pastData.aiDiagnostics.length === 0)) {
+    historySec.innerHTML = '<p class="history-empty">まだ履歴はありません。</p>';
+    return;
+  }
+
+  let html = '';
+
+  // ① 直近AI診断バッジ
+  if (pastData.aiDiagnostics.length > 0) {
+    const lastDiag = pastData.aiDiagnostics[pastData.aiDiagnostics.length - 1];
+    const prevDiag = pastData.aiDiagnostics.length > 1
+      ? pastData.aiDiagnostics[pastData.aiDiagnostics.length - 2]
+      : null;
+    const score  = Number(lastDiag.overallScore) || 0;
+    const stars  = '★'.repeat(Math.min(score, 5)) + '☆'.repeat(Math.max(5 - score, 0));
+    const pScore = prevDiag ? (Number(prevDiag.overallScore) || 0) : null;
+    const diff   = pScore !== null ? score - pScore : null;
+
+    html += `
+      <div class="diag-badge-wrapper">
+        <div class="diag-badge-label"><i class="ti ti-sparkles"></i> 直近のAI診断</div>
+        <div class="diag-badge">
+          <div class="diag-badge-score">
+            <span class="diag-badge-stars">${stars}</span>
+            <span class="diag-badge-num">${score}<small>/5</small></span>
+            ${diff !== null
+              ? `<span class="diag-badge-diff ${diff >= 0 ? 'up' : 'down'}">${diff >= 0 ? '▲' : '▼'}${Math.abs(diff)}</span>`
+              : ''}
+          </div>
+          <div class="diag-badge-comment">${escapeHtml(lastDiag.overallComment || '')}</div>
+          <div class="diag-badge-date">${escapeHtml(lastDiag.date || '')}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ② 理解度推移グラフ（Canvas）
+  const logsWithComp = pastData.lessonLogs.filter(l =>
+    l.comprehension != null && l.comprehension !== '' && l.comprehension !== '未入力'
+  );
+  if (logsWithComp.length > 0) {
+    html += `
+      <h3 class="history-section-title"><i class="ti ti-chart-line"></i> 理解度の推移</h3>
+      <div class="chart-container">
+        <canvas id="comp-chart"></canvas>
+      </div>
+    `;
+  }
+
+  // ③ 授業ログ（アコーディオン）
+  if (pastData.lessonLogs.length > 0) {
+    html += '<h3 class="history-section-title"><i class="ti ti-book"></i> 授業ログ</h3>';
+    html += '<div class="accordion-list">';
+    [...pastData.lessonLogs].reverse().forEach((log, idx) => {
+      const comp = parseComprehension(log.comprehension);
+      html += `
+        <div class="accordion-item${idx === 0 ? ' is-open' : ''}">
+          <div class="accordion-header">
+            <div class="accordion-header-left">
+              <i class="ti ti-chevron-right accordion-icon"></i>
+              <span class="history-date">${escapeHtml(log.date || '')}</span>
+              ${log.subject ? `<span class="history-subject">${escapeHtml(log.subject)}</span>` : ''}
+            </div>
+            ${comp ? `<span class="history-comp">理解度 ${comp}/10</span>` : ''}
+          </div>
+          <div class="accordion-body">
+            ${comp ? `
+              <div class="accordion-comp-row">
+                <span class="mini-bar"><span class="mini-bar-fill" style="width:${Math.round(comp / 10 * 100)}%"></span></span>
+                <span class="accordion-comp-num">${comp} / 10</span>
+              </div>` : ''}
+            ${log.instructorNotes ? `<div class="accordion-field"><span class="accordion-field-label">講師メモ：</span>${escapeHtml(log.instructorNotes)}</div>` : ''}
+            ${log.attitude        ? `<div class="accordion-field"><span class="accordion-field-label">学習態度：</span>${escapeHtml(log.attitude)}</div>` : ''}
+            ${log.homeworkStatus  ? `<div class="accordion-field"><span class="accordion-field-label">宿題状況：</span>${escapeHtml(log.homeworkStatus)}</div>` : ''}
+            ${log.unit            ? `<div class="accordion-field"><span class="accordion-field-label">単元/結果：</span>${escapeHtml(log.unit)}</div>` : ''}
+          </div>
+        </div>
+      `;
+    });
+    html += '</div>';
+  }
+
+  // ④ AI診断履歴（アコーディオン）
+  if (pastData.aiDiagnostics.length > 0) {
+    html += '<h3 class="history-section-title"><i class="ti ti-sparkles"></i> AI診断履歴</h3>';
+    html += '<div class="accordion-list">';
+    [...pastData.aiDiagnostics].reverse().forEach((diag, idx) => {
+      const score = Number(diag.overallScore) || 0;
+      const stars = '★'.repeat(Math.min(score, 5)) + '☆'.repeat(Math.max(5 - score, 0));
+      html += `
+        <div class="accordion-item${idx === 0 ? ' is-open' : ''}">
+          <div class="accordion-header">
+            <div class="accordion-header-left">
+              <i class="ti ti-chevron-right accordion-icon"></i>
+              <span class="history-date">${escapeHtml(diag.date || '')}</span>
+              <span class="history-score">${stars}</span>
+            </div>
+            <span class="diag-score-badge">${score}/5</span>
+          </div>
+          <div class="accordion-body">
+            <div class="accordion-field">${escapeHtml(diag.overallComment || '')}</div>
+          </div>
+        </div>
+      `;
+    });
+    html += '</div>';
+  }
+
+  historySec.innerHTML = html;
+
+  // アコーディオン開閉イベントを登録
+  historySec.querySelectorAll('.accordion-header').forEach(header => {
+    header.addEventListener('click', () => {
+      header.closest('.accordion-item').classList.toggle('is-open');
+    });
+  });
+
+  // Canvas グラフ描画
+  if (logsWithComp.length > 0) {
+    drawComprehensionChart(logsWithComp);
+  }
+}
+
+/** 理解度の値を数値にパースする（"7 / 10" → 7 など） */
+function parseComprehension(val) {
+  if (val == null || val === '' || val === '未入力') return 0;
+  if (typeof val === 'number') return val;
+  const m = String(val).match(/(\d+)/);
+  return m ? Number(m[1]) : 0;
+}
+
+/** Canvas に理解度推移グラフを描画する */
+function drawComprehensionChart(logs) {
+  const canvas = document.getElementById('comp-chart');
+  if (!canvas || !canvas.getContext) return;
+
+  const data = logs.slice(-10);
+
+  const wrapper = canvas.parentElement;
+  const W = Math.max(wrapper.clientWidth || 320, 200);
+  const H = 160;
+  canvas.width  = W;
+  canvas.height = H;
+  canvas.style.width  = '100%';
+  canvas.style.height = H + 'px';
+
+  const ctx = canvas.getContext('2d');
+  const PAD = { top: 20, right: 20, bottom: 38, left: 36 };
+  const cW  = W - PAD.left - PAD.right;
+  const cH  = H - PAD.top  - PAD.bottom;
+
+  const primary = '#4f46e5';
+  const muted   = '#9ca3af';
+  const border  = '#e5e7eb';
+
+  ctx.clearRect(0, 0, W, H);
+
+  function getX(i) {
+    return PAD.left + (data.length > 1 ? (i / (data.length - 1)) * cW : cW / 2);
+  }
+  function getY(v) {
+    return PAD.top + cH - (v / 10) * cH;
+  }
+
+  // グリッド線と Y ラベル
+  [2, 4, 6, 8, 10].forEach(v => {
+    const y = getY(v);
+    ctx.beginPath();
+    ctx.strokeStyle = border;
+    ctx.lineWidth   = 1;
+    ctx.moveTo(PAD.left, y);
+    ctx.lineTo(W - PAD.right, y);
+    ctx.stroke();
+    ctx.fillStyle    = muted;
+    ctx.font         = '10px system-ui,sans-serif';
+    ctx.textAlign    = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(v), PAD.left - 5, y);
+  });
+
+  // グラデーション塗りつぶし
+  if (data.length > 1) {
+    const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + cH);
+    grad.addColorStop(0, 'rgba(79,70,229,0.22)');
+    grad.addColorStop(1, 'rgba(79,70,229,0)');
+    ctx.beginPath();
+    ctx.moveTo(getX(0), getY(parseComprehension(data[0].comprehension)));
+    for (let i = 1; i < data.length; i++) {
+      ctx.lineTo(getX(i), getY(parseComprehension(data[i].comprehension)));
+    }
+    ctx.lineTo(getX(data.length - 1), PAD.top + cH);
+    ctx.lineTo(getX(0), PAD.top + cH);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+  }
+
+  // 折れ線
+  if (data.length > 1) {
+    ctx.beginPath();
+    ctx.strokeStyle = primary;
+    ctx.lineWidth   = 2;
+    ctx.lineJoin    = 'round';
+    ctx.moveTo(getX(0), getY(parseComprehension(data[0].comprehension)));
+    for (let i = 1; i < data.length; i++) {
+      ctx.lineTo(getX(i), getY(parseComprehension(data[i].comprehension)));
+    }
+    ctx.stroke();
+  }
+
+  // ドット・値ラベル・日付ラベル
+  data.forEach((log, i) => {
+    const x   = getX(i);
+    const val = parseComprehension(log.comprehension);
+    const y   = getY(val);
+
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle   = '#fff';
+    ctx.strokeStyle = primary;
+    ctx.lineWidth   = 2;
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle    = primary;
+    ctx.font         = 'bold 10px system-ui,sans-serif';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(String(val), x, y - 6);
+
+    const dateLabel = (log.date || '').replace(/^\d{4}-/, '').replace('-', '/');
+    ctx.fillStyle    = muted;
+    ctx.font         = '9px system-ui,sans-serif';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(dateLabel, x, H - PAD.bottom + 6);
+  });
 }
 
 /* ===========================
@@ -166,7 +834,23 @@ function restoreForm(s) {
     : [createTestEntry()];
   renderTestList(tests);
 
-  if (s.result) {
+  // モード自動判別（生徒タブ初回表示時のみ実行）
+  if (!s.modeInitialized) {
+    const name = (s.data['f-name'] || '').trim();
+    s.mode = name
+      ? detectMode('std_' + encodeURIComponent(name))
+      : 'profile';
+    s.modeInitialized = true;
+  }
+
+  updateSubNavActive(s.mode);
+  showModeSection(s.mode);
+
+  if (s.lastResultType === 'lessonplan' && s.lessonPlanResult) {
+    renderLessonPlanResult(s.lessonPlanResult, buildFormData());
+    showState('state-result');
+  } else if (s.result) {
+    s.lastResultType = 'diagnosis';
     renderResult(s.result, buildFormData());
     showState('state-result');
   } else {
@@ -300,7 +984,6 @@ function getVal(id) {
 function buildFormData() {
   const compVal = getVal('f-comp');
 
-  // テストエントリーをAIプロンプト用テキストに変換
   const tests       = collectTestEntries();
   const filledTests = tests.filter(t => t.scores || t.type);
   let scoresText    = '未入力';
@@ -330,14 +1013,19 @@ function buildFormData() {
 }
 
 function showState(id) {
-  ['state-empty', 'state-loading', 'state-error', 'state-result'].forEach(s => {
+  ['state-empty', 'state-loading', 'state-error', 'state-result', 'state-summary'].forEach(s => {
     document.getElementById(s).style.display = (s === id) ? '' : 'none';
   });
 }
 
-/* ===========================
-   テストエントリー管理
-=========================== */
+/** ローディング画面のテキストを動的に差し替える */
+function setLoadingText(title, sub) {
+  const titleEl = document.querySelector('#state-loading .state-title');
+  const subEl   = document.querySelector('#state-loading .state-sub');
+  if (titleEl) titleEl.textContent = title;
+  if (subEl)   subEl.textContent   = sub || 'しばらくお待ちください';
+}
+
 /* ===========================
    テストエントリー管理
 =========================== */
@@ -347,7 +1035,6 @@ function renderTestList(tests) {
   list.innerHTML = '';
   tests.forEach((t, i) => {
     const el = createTestEntryElement(t, i);
-    // 最後（最新）のエントリー以外は初期状態で折りたたむ
     if (i !== tests.length - 1) {
       el.classList.remove('is-open');
     }
@@ -358,10 +1045,8 @@ function renderTestList(tests) {
 /** 1件のテストエントリー要素を生成してイベントをバインドする */
 function createTestEntryElement(test, idx) {
   const div      = document.createElement('div');
-  // デフォルトで 'is-open' を付与して開いた状態にする
   div.className  = 'test-entry is-open';
 
-  // ヘッダーとコンテンツ（.test-entry-content）に分割
   div.innerHTML = `
     <div class="test-entry-header" title="クリックで開閉">
       <div class="test-header-left">
@@ -412,31 +1097,28 @@ function createTestEntryElement(test, idx) {
     const scores = div.querySelector('.test-scores').value.trim();
     let previewText = '';
     if (type) previewText += type;
-    if (scores) previewText += (previewText ? ' - ' : '') + scores.replace(/\n/g, ' '); // 改行をスペースに
+    if (scores) previewText += (previewText ? ' - ' : '') + scores.replace(/\n/g, ' ');
     previewSpan.textContent = previewText || '(未入力)';
   }
 
-  // 各入力項目の変更時にプレビューを更新
   div.querySelectorAll('.test-type-input, .test-scores').forEach(el => {
     el.addEventListener('input', updatePreview);
   });
-  updatePreview(); // 初期化時に一度実行
+  updatePreview();
 
   // ── 開閉処理 ──
   const header = div.querySelector('.test-entry-header');
   header.addEventListener('click', (e) => {
-    // 削除ボタンをクリックした場合は開閉させない
     if (e.target.closest('.test-remove-btn')) return;
     div.classList.toggle('is-open');
   });
 
   // ── 削除ボタン ──
   div.querySelector('.test-remove-btn').addEventListener('click', (e) => {
-    e.stopPropagation(); // 開閉イベントの発火を防ぐ
+    e.stopPropagation();
     const list = document.getElementById('test-list');
     div.remove();
     renumberTestEntries();
-    // 全件削除された場合は空のエントリーを自動追加
     if (!list.querySelector('.test-entry')) {
       list.appendChild(createTestEntryElement(createTestEntry(), 0));
     }
@@ -469,16 +1151,13 @@ function renumberTestEntries() {
 document.getElementById('test-add-btn').addEventListener('click', () => {
   const list = document.getElementById('test-list');
   
-  // 既存のすべてのテストエントリーを折りたたむ
   list.querySelectorAll('.test-entry').forEach(entry => {
     entry.classList.remove('is-open');
   });
 
-  // 新しいエントリーを追加（デフォルトで開いている）
   const newIdx = list.querySelectorAll('.test-entry').length;
   list.appendChild(createTestEntryElement(createTestEntry(), newIdx));
   
-  // スクロール処理
   const panel = document.getElementById('form-panel');
   setTimeout(() => {
     panel.scrollTo({ top: panel.scrollHeight, behavior: 'smooth' });
@@ -502,24 +1181,43 @@ document.getElementById('gen-btn').addEventListener('click', async () => {
   const btn = document.getElementById('gen-btn');
   btn.disabled = true;
   btn.innerHTML = '<i class="ti ti-loader-2"></i> AIが分析中...';
+  setLoadingText('AIが分析中です...', 'しばらくお待ちください');
   showState('state-loading');
 
   const formData = buildFormData();
 
-  // ----------------------------------------------------
-  // 日付の設定（フォームで指定がなければ今日の日付）
-  // ----------------------------------------------------
   const lessonDate = formData.date || new Date().toISOString().split('T')[0];
   const studentId  = 'std_' + encodeURIComponent(formData.name || 'default');
   
-  // 過去データの取得
   const pastData     = getStudentData(studentId);
-  const previousLogs = pastData ? pastData.lessonLogs.slice(-3) : [];
+  const previousLogs = pastData ? pastData.lessonLogs.slice(-10) : [];
   const lastDiag     = (pastData && pastData.aiDiagnostics.length > 0)
     ? pastData.aiDiagnostics[pastData.aiDiagnostics.length - 1]
     : null;
 
-  // 今回の授業レポートを履歴に追加・保存（指定した授業日を使用）
+  // 理解度の傾向を数値計算（全ログの前半平均 vs 後半平均で比較）
+  const compValues = (pastData ? pastData.lessonLogs : [])
+    .map(l => parseComprehension(l.comprehension))
+    .filter(v => v > 0);
+  let compTrendText = '記録なし';
+  if (compValues.length >= 2) {
+    const half   = Math.ceil(compValues.length / 2);
+    const avgOld = (compValues.slice(0, half).reduce((a, b) => a + b, 0) / half).toFixed(1);
+    const avgNew = (compValues.slice(-half).reduce((a, b) => a + b, 0) / half).toFixed(1);
+    const diff   = (Number(avgNew) - Number(avgOld)).toFixed(1);
+    const arrow  = Number(diff) > 0.5 ? '上昇傾向↑' : Number(diff) < -0.5 ? '低下傾向↓' : '横ばい→';
+    compTrendText = `${arrow}（前半平均 ${avgOld} → 後半平均 ${avgNew}、変化 ${Number(diff) >= 0 ? '+' : ''}${diff}、全${compValues.length}件）`;
+  }
+
+  // AI診断スコアの前回比
+  const scoreDiffText = (pastData && pastData.aiDiagnostics.length > 1 && lastDiag)
+    ? (() => {
+        const prev = pastData.aiDiagnostics[pastData.aiDiagnostics.length - 2];
+        const d    = Number(lastDiag.overallScore) - Number(prev.overallScore);
+        return `${d >= 0 ? '+' : ''}${d}（前回 ${prev.overallScore} → 直近 ${lastDiag.overallScore}）`;
+      })()
+    : '初回診断のため比較なし';
+
   addLessonLog(studentId, {
     date: lessonDate,
     subject: formData.subjects,
@@ -529,9 +1227,6 @@ document.getElementById('gen-btn').addEventListener('click', async () => {
     instructorNotes: formData.notes
   });
 
-  // ----------------------------------------------------
-  // 高精度プロンプトの構築
-  // ----------------------------------------------------
   const prompt = `
 あなたはプロの教育コンサルタント・塾講師です。
 生徒の基本情報、過去の学習変化、今回の授業内容を踏まえ、保護者も納得する高品質な診断レポートを作成してください。
@@ -543,12 +1238,16 @@ document.getElementById('gen-btn').addEventListener('click', async () => {
 目標: ${formData.goal}
 現在の課題: ${formData.concerns}
 
+【学習傾向分析（数値）】
+理解度の傾向: ${compTrendText}
+AI診断スコアの変化: ${scoreDiffText}
+
 【前回のAI診断結果】
 ${lastDiag ? `前回の総合スコア: ${lastDiag.overallScore} / 5\n前回の所見: ${lastDiag.overallComment}` : '過去のAI診断履歴はありません（初回診断）'}
 
-【直近の指導経過】
+【直近の指導経過（最大10件）】
 ${previousLogs.length > 0 ? previousLogs.map((log, index) => `
-${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${log.comprehension}/10
+${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehension(log.comprehension)}/10
    所見: ${log.instructorNotes}
 `).join('') : '過去の授業ログはありません'}
 
@@ -559,24 +1258,22 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${log.comprehens
 講師メモ: ${formData.notes}
 
 【指示】
+- 学習傾向分析の数値（理解度の傾向・スコア変化）を必ず言及し、変化を具体的に評価してください。
 - 過去のデータと比較し、「成長できた点」「継続して取り組む課題」を具体的に述べてください。
+- 次回授業プランは今回の課題を踏まえ、単元名・教材名・つまずきやすい箇所を明記してください。
 - 保護者向けメッセージは丁寧で前向き、そのまま面談や連絡帳で渡せるクオリティにしてください。
 `.trim();
 
   try {
-    // ----------------------------------------------------
-    // API呼び出し（Structured Outputs でJSON型を100%強制）
-    // ----------------------------------------------------
     const response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
-          temperature: 0.3, // 揺らぎを抑えてフォーマットを安定化
-          maxOutputTokens: 2048,
+          temperature: 0.3,
+          maxOutputTokens: 3000,
           responseMimeType: "application/json",
-          // ★構造化出力（JSONの型を絶対に崩さない設定）
           responseSchema: {
             type: "OBJECT",
             properties: {
@@ -586,13 +1283,24 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${log.comprehens
               improvements: { type: "ARRAY", items: { type: "STRING" } },
               weeklyPlan: { type: "STRING" },
               monthlyPlan: { type: "STRING" },
+              nextLessonPlan: {
+                type: "OBJECT",
+                properties: {
+                  objective: { type: "STRING" },
+                  keyPoints: { type: "ARRAY", items: { type: "STRING" } },
+                  materials: { type: "STRING" },
+                  pitfalls:  { type: "ARRAY", items: { type: "STRING" } }
+                },
+                required: ["objective", "keyPoints", "materials", "pitfalls"]
+              },
               instructorAdvice: { type: "STRING" },
               parentMessage: { type: "STRING" },
               urgentAction: { type: "STRING" }
             },
             required: [
               "overallScore", "overallComment", "strengths", "improvements",
-              "weeklyPlan", "monthlyPlan", "instructorAdvice", "parentMessage", "urgentAction"
+              "weeklyPlan", "monthlyPlan", "nextLessonPlan",
+              "instructorAdvice", "parentMessage", "urgentAction"
             ]
           }
         },
@@ -608,14 +1316,13 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${log.comprehens
     const data    = await response.json();
     const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-    // レスポンスのクリーンアップ＆パース
     const clean  = rawText.replace(/```json|```/g, '').trim();
     const result = JSON.parse(clean);
 
-    // AI診断結果を保存
     addAIDiagnostics(studentId, result);
 
-    students[currentIndex].result = result;
+    students[currentIndex].result         = result;
+    students[currentIndex].lastResultType = 'diagnosis';
     renderResult(result, formData);
     showState('state-result');
 
@@ -629,6 +1336,236 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${log.comprehens
     btn.innerHTML = '<i class="ti ti-sparkles"></i> AI診断レポートを生成する';
   }
 });
+
+
+/* ===========================
+   Step 5: 次回授業案を生成する（軽量プロンプト / maxOutputTokens:800）
+=========================== */
+document.getElementById('next-lesson-btn').addEventListener('click', async () => {
+  const apiKey = document.getElementById('api-key')?.value.trim();
+  if (!apiKey) {
+    showInlineError(
+      'APIキーを入力してください。<br>' +
+      '<small><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="color:inherit;">Google AI Studio で無料取得できます →</a></small>'
+    );
+    return;
+  }
+
+  const btn = document.getElementById('next-lesson-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ti ti-loader-2"></i> 授業案を作成中...';
+  setLoadingText('次回授業案を作成中...', 'しばらくお待ちください');
+  showState('state-loading');
+
+  const formData   = buildFormData();
+  const lessonDate = getVal('lesson-date') || new Date().toISOString().split('T')[0];
+  const studentId  = 'std_' + encodeURIComponent(formData.name || 'default');
+  const pastData   = getStudentData(studentId);
+  const recentLogs = pastData ? pastData.lessonLogs.slice(-5) : [];
+
+  const prompt = `
+あなたはベテラン塾講師です。
+以下の授業履歴と今回の指導記録をもとに、次回授業の具体的な指導案を作成してください。
+総合診断・保護者向けコメント・月間計画は不要です。授業計画のみに特化して回答してください。
+
+【生徒情報】
+名前: ${formData.name}
+学年: ${formData.grade}
+担当科目: ${formData.subjects}
+目標: ${formData.goal}
+現在の課題: ${formData.concerns}
+
+【直近の授業履歴（最大5件）】
+${recentLogs.length > 0
+  ? recentLogs.map((log, i) =>
+      `${i + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehension(log.comprehension)}/10\n   メモ: ${log.instructorNotes}`
+    ).join('\n')
+  : '過去の授業ログはありません'}
+
+【今回の授業（${lessonDate}）】
+理解度（10段階）: ${formData.comp}
+テスト・単元結果: ${formData.scores}
+学習態度: ${formData.attitude}
+講師メモ: ${formData.notes}
+
+【指示】
+- 今回の理解度・課題を踏まえ、次回の授業目標を1文で端的に示してください。
+- 重点指導ポイントは3〜4点に絞り、具体的な単元名・問題タイプを挙げてください。
+- 使用する教材・参考書・ページ数を具体的に記載してください。
+- 生徒がつまずきやすい箇所と講師がとるべき対処法を明記してください。
+- 次回授業前に出す宿題・自習課題を具体的に提示してください。
+- 指導のヒントとして、この生徒への効果的なアプローチを1〜2文で示してください。
+`.trim();
+
+  try {
+    const response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: 800,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: {
+              objective:    { type: 'STRING' },
+              keyPoints:    { type: 'ARRAY', items: { type: 'STRING' } },
+              materials:    { type: 'STRING' },
+              pitfalls:     { type: 'ARRAY', items: { type: 'STRING' } },
+              homework:     { type: 'STRING' },
+              teachingTips: { type: 'STRING' }
+            },
+            required: ['objective', 'keyPoints', 'materials', 'pitfalls', 'homework', 'teachingTips']
+          }
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => ({}));
+      const msg = errBody?.error?.message || `${response.status} ${response.statusText}`;
+      throw new Error(msg);
+    }
+
+    const data    = await response.json();
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const clean   = rawText.replace(/```json|```/g, '').trim();
+    const result  = JSON.parse(clean);
+
+    students[currentIndex].lessonPlanResult = result;
+    students[currentIndex].lastResultType   = 'lessonplan';
+    renderLessonPlanResult(result, formData);
+    showState('state-result');
+
+  } catch (err) {
+    showInlineError(
+      '次回授業案の生成に失敗しました。APIキーとネットワーク接続を確認してください。<br>' +
+      `<small>${escapeHtml(err.message)}</small>`
+    );
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ti ti-calendar-event"></i> 次回授業案を生成';
+  }
+});
+
+
+/* ===========================
+   次回授業案をHTMLに描画する
+=========================== */
+function renderLessonPlanResult(d, formData) {
+  const subLine = [formData.grade, formData.subjects]
+    .filter(v => v !== '未入力').join(' ／ ');
+
+  const keyPointsHTML = (d.keyPoints || []).map(p => `<li>${escapeHtml(p)}</li>`).join('');
+  const pitfallsHTML  = (d.pitfalls  || []).map(p => `<li>${escapeHtml(p)}</li>`).join('');
+
+  const html = `
+    <!-- アクションバー -->
+    <div class="result-actions no-print">
+      <button type="button" class="action-btn action-btn-teal" id="lesson-copy-btn">
+        <i class="ti ti-copy"></i> 授業案をコピー
+      </button>
+      ${students[currentIndex]?.result ? `
+      <button type="button" class="action-btn action-btn-primary" id="switch-to-diagnosis-btn">
+        <i class="ti ti-report-analytics"></i> 診断レポートを表示
+      </button>` : ''}
+    </div>
+
+    <!-- ヘッダー：授業目標 -->
+    <div class="result-card card-lesson">
+      <div class="hero-row">
+        <div>
+          <div class="hero-name" style="color:#0f766e">${escapeHtml(formData.name)} さん — 次回授業案</div>
+          <div class="hero-sub" style="color:#14b8a6">${escapeHtml(subLine)}</div>
+        </div>
+        <i class="ti ti-calendar-event" style="font-size:30px;color:#14b8a6;opacity:0.55;flex-shrink:0"></i>
+      </div>
+      <div class="card-body" style="color:#134e4a;font-weight:600">${escapeHtml(d.objective || '')}</div>
+    </div>
+
+    <!-- 重点指導ポイント -->
+    <div class="result-card card-neutral">
+      <div class="card-label"><i class="ti ti-target"></i> 重点指導ポイント</div>
+      <ul class="diag-list">${keyPointsHTML}</ul>
+    </div>
+
+    <!-- 教材・準備物 -->
+    <div class="result-card card-neutral">
+      <div class="card-label"><i class="ti ti-books"></i> 教材・準備物</div>
+      <div class="card-body">${escapeHtml(d.materials || '')}</div>
+    </div>
+
+    <!-- つまずきポイントと対処法 -->
+    <div class="result-card card-improvements">
+      <div class="card-label"><i class="ti ti-alert-triangle"></i> つまずきやすい箇所と対処法</div>
+      <ul class="diag-list">${pitfallsHTML}</ul>
+    </div>
+
+    <!-- 宿題・自習課題 -->
+    <div class="result-card card-neutral">
+      <div class="card-label"><i class="ti ti-home"></i> 宿題・自習課題</div>
+      <div class="card-body">${escapeHtml(d.homework || '')}</div>
+    </div>
+
+    <!-- 指導のヒント -->
+    <div class="result-card card-lesson">
+      <div class="card-label"><i class="ti ti-bulb"></i> 指導のヒント</div>
+      <div class="card-body">${escapeHtml(d.teachingTips || '')}</div>
+    </div>
+  `;
+
+  document.getElementById('state-result').innerHTML = html;
+
+  // 授業案コピーボタン
+  document.getElementById('lesson-copy-btn').addEventListener('click', () => {
+    const fullText = `
+【次回授業案】${formData.name} さん（${subLine}）
+
+■ 授業目標
+${d.objective || ''}
+
+■ 重点指導ポイント
+${(d.keyPoints || []).map(p => `・${p}`).join('\n')}
+
+■ 教材・準備物
+${d.materials || ''}
+
+■ つまずきやすい箇所と対処法
+${(d.pitfalls || []).map(p => `・${p}`).join('\n')}
+
+■ 宿題・自習課題
+${d.homework || ''}
+
+■ 指導のヒント
+${d.teachingTips || ''}
+`.trim();
+
+    navigator.clipboard.writeText(fullText).then(() => {
+      const copyBtn = document.getElementById('lesson-copy-btn');
+      if (copyBtn) {
+        copyBtn.innerHTML = '<i class="ti ti-check"></i> コピーしました';
+        setTimeout(() => {
+          copyBtn.innerHTML = '<i class="ti ti-copy"></i> 授業案をコピー';
+        }, 2000);
+      }
+    });
+  });
+
+  // 診断レポートに切り替えるボタン（診断結果が存在する場合のみ表示）
+  const switchBtn = document.getElementById('switch-to-diagnosis-btn');
+  if (switchBtn) {
+    switchBtn.addEventListener('click', () => {
+      const s = students[currentIndex];
+      if (s.result) {
+        s.lastResultType = 'diagnosis';
+        renderResult(s.result, buildFormData());
+        showState('state-result');
+      }
+    });
+  }
+}
 
 
 /* ===========================
@@ -651,6 +1588,10 @@ function renderResult(d, formData) {
       <button type="button" class="action-btn" id="copy-all-btn">
         <i class="ti ti-copy"></i> レポート全体をコピー
       </button>
+      ${students[currentIndex]?.lessonPlanResult ? `
+      <button type="button" class="action-btn action-btn-teal-outline" id="switch-to-lesson-btn">
+        <i class="ti ti-calendar-event"></i> 授業案を表示
+      </button>` : ''}
     </div>
 
     <!-- 総合評価 -->
@@ -687,6 +1628,30 @@ function renderResult(d, formData) {
         <ul class="diag-list">${improvementsHTML}</ul>
       </div>
     </div>
+
+    <!-- 次回授業プラン -->
+    ${d.nextLessonPlan ? `
+    <div class="result-card card-neutral">
+      <div class="card-label"><i class="ti ti-calendar-event"></i> 次回授業プラン</div>
+      <div class="card-body">
+        <div style="font-weight:600;margin-bottom:8px">${escapeHtml(d.nextLessonPlan.objective || '')}</div>
+        ${(d.nextLessonPlan.keyPoints || []).length > 0 ? `
+          <div style="margin-bottom:8px">
+            <div style="font-size:11px;font-weight:600;color:var(--text-muted,#6b7280);margin-bottom:4px">重点ポイント</div>
+            <ul class="diag-list">${(d.nextLessonPlan.keyPoints || []).map(p => `<li>${escapeHtml(p)}</li>`).join('')}</ul>
+          </div>` : ''}
+        ${d.nextLessonPlan.materials ? `
+          <div style="margin-bottom:8px">
+            <div style="font-size:11px;font-weight:600;color:var(--text-muted,#6b7280);margin-bottom:2px">教材・準備物</div>
+            <div>${escapeHtml(d.nextLessonPlan.materials)}</div>
+          </div>` : ''}
+        ${(d.nextLessonPlan.pitfalls || []).length > 0 ? `
+          <div>
+            <div style="font-size:11px;font-weight:600;color:var(--text-muted,#6b7280);margin-bottom:4px">注意点・つまずきやすい箇所</div>
+            <ul class="diag-list">${(d.nextLessonPlan.pitfalls || []).map(p => `<li>${escapeHtml(p)}</li>`).join('')}</ul>
+          </div>` : ''}
+      </div>
+    </div>` : ''}
 
     <!-- 1週間の学習プラン -->
     <div class="result-card card-neutral">
@@ -749,6 +1714,14 @@ ${d.weeklyPlan || ''}
 ■ 1ヶ月の目標と方針
 ${d.monthlyPlan || ''}
 
+■ 次回授業プラン
+${d.nextLessonPlan ? `目標: ${d.nextLessonPlan.objective || ''}
+重点ポイント:
+${(d.nextLessonPlan.keyPoints || []).map(p => `・${p}`).join('\n')}
+教材・準備物: ${d.nextLessonPlan.materials || ''}
+注意点:
+${(d.nextLessonPlan.pitfalls || []).map(p => `・${p}`).join('\n')}` : '（なし）'}
+
 ■ 講師へのアドバイス
 ${d.instructorAdvice || ''}
 
@@ -776,9 +1749,296 @@ ${d.parentMessage || ''}
       }, 2000);
     });
   });
+
+  // 4. 次回授業案に切り替えるボタン（授業案が存在する場合のみ表示）
+  const switchToLessonBtn = document.getElementById('switch-to-lesson-btn');
+  if (switchToLessonBtn) {
+    switchToLessonBtn.addEventListener('click', () => {
+      const s = students[currentIndex];
+      if (s.lessonPlanResult) {
+        s.lastResultType = 'lessonplan';
+        renderLessonPlanResult(s.lessonPlanResult, buildFormData());
+        showState('state-result');
+      }
+    });
+  }
 }
 
 
+/* ===========================
+   Step 6: データ管理
+=========================== */
+
+/** 全生徒データをJSONファイルとしてダウンロード */
+function exportAllData() {
+  saveCurrentForm();
+
+  const exportObj = {
+    exportedAt:     new Date().toISOString(),
+    appVersion:     'step6',
+    tabs:           students.map(s => ({
+      id:          s.id,
+      tabName:     s.tabName,
+      defaultName: s.defaultName,
+      data:        s.data,
+    })),
+    studentRecords: {}
+  };
+
+  students.forEach(s => {
+    const name = (s.data['f-name'] || '').trim();
+    if (!name) return;
+    const sid    = 'std_' + encodeURIComponent(name);
+    const record = getStudentData(sid);
+    if (record) exportObj.studentRecords[sid] = record;
+  });
+
+  const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `生徒データ_${new Date().toISOString().split('T')[0]}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('エクスポートが完了しました ✓');
+}
+
+/** JSONファイルを読み込んでデータを復元する */
+function importData(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const parsed = JSON.parse(e.target.result);
+
+      // ① localStorageへ生徒記録を保存
+      if (parsed.studentRecords && typeof parsed.studentRecords === 'object') {
+        Object.entries(parsed.studentRecords).forEach(([sid, record]) => {
+          saveStudentData({ ...record, studentId: sid });
+        });
+      }
+
+      // ② タブ一覧も上書きするか確認
+      if (Array.isArray(parsed.tabs) && parsed.tabs.length > 0) {
+        if (confirm('タブ（生徒一覧）も上書きしますか？\nキャンセルすると学習記録のみ復元されます。')) {
+          students = parsed.tabs.map(t => ({
+            ...createStudent(),
+            id:               t.id           || Date.now() + Math.random(),
+            tabName:          t.tabName      || t.defaultName || '生徒',
+            defaultName:      t.defaultName  || '生徒',
+            data:             t.data         || {},
+            result:           null,
+            lessonPlanResult: null,
+            lastResultType:   'diagnosis',
+            mode:             'profile',
+            modeInitialized:  false,
+          }));
+          currentIndex = 0;
+          renderTabs();
+          restoreForm(students[currentIndex]);
+        }
+      }
+
+      showToast('インポートが完了しました ✓');
+    } catch (err) {
+      showToast('インポートに失敗: ' + err.message, 'error');
+    }
+  };
+  reader.readAsText(file);
+}
+
+/** 一時トースト通知を表示する */
+function showToast(message, type = 'success') {
+  const toast = document.createElement('div');
+  toast.className = `data-toast data-toast-${type}`;
+  const icon = type === 'success' ? 'ti-circle-check' : 'ti-alert-triangle';
+  toast.innerHTML = `<i class="ti ${icon}"></i> ${escapeHtml(message)}`;
+  document.body.appendChild(toast);
+  // ダブル rAF で transition を確実に発火させる
+  requestAnimationFrame(() => requestAnimationFrame(() => toast.classList.add('show')));
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
+/** 右パネルに全生徒の横断サマリーを描画する */
+function renderSummaryPanel() {
+  saveCurrentForm();
+
+  const TODAY      = new Date();
+  const DANGER_COMP  = 4;   // 理解度 ≤ この値でフラグ（赤）
+  const ABSENT_DAYS  = 14;  // この日数以上授業なしでフラグ（黄）
+
+  /* ---- 各生徒のデータを集計 ---- */
+  const rows = students.map((s, idx) => {
+    const name  = (s.data['f-name'] || '').trim() || s.defaultName;
+    const grade = s.data['f-grade'] || '—';
+
+    const rawName = (s.data['f-name'] || '').trim();
+    const record  = rawName ? getStudentData('std_' + encodeURIComponent(rawName)) : null;
+    const logs    = record ? record.lessonLogs : [];
+
+    // 直近理解度（記録があるログの最新値）
+    const logsWithComp = logs.filter(l => parseComprehension(l.comprehension) > 0);
+    const lastComp = logsWithComp.length > 0
+      ? parseComprehension(logsWithComp[logsWithComp.length - 1].comprehension)
+      : null;
+
+    // 最終授業日
+    const lastLog  = logs.length > 0 ? logs[logs.length - 1] : null;
+    const lastDate = lastLog ? lastLog.date : null;
+    const daysAgo  = lastDate
+      ? Math.floor((TODAY - new Date(lastDate)) / 86400000)
+      : null;
+
+    // フラグ判定
+    const flags = [];
+    if (lastComp !== null && lastComp <= DANGER_COMP) {
+      flags.push({ type: 'danger',  icon: 'ti-alert-circle', label: `理解度 ${lastComp}/10` });
+    }
+    if (daysAgo !== null && daysAgo >= ABSENT_DAYS) {
+      flags.push({ type: 'warning', icon: 'ti-clock',        label: `${daysAgo}日授業なし` });
+    }
+    if (flags.length === 0 && lastDate === null) {
+      flags.push({ type: 'muted',   icon: 'ti-pencil-off',   label: '授業記録なし' });
+    }
+
+    return { idx, name, grade, lastDate, daysAgo, lastComp, flags };
+  });
+
+  /* ---- KPI 集計 ---- */
+  const dangerCount  = rows.filter(r => r.flags.some(f => f.type === 'danger')).length;
+  const warningCount = rows.filter(r => r.flags.some(f => f.type === 'warning')).length;
+
+  /* ---- HTML 組み立て ---- */
+  let html = `
+    <div class="summary-header">
+      <div class="summary-title"><i class="ti ti-users"></i> 全生徒サマリー</div>
+      <div class="summary-meta">${students.length} 名登録中</div>
+    </div>
+
+    <div class="summary-kpi-row">
+      <div class="summary-kpi ${dangerCount  > 0 ? 'kpi-danger'  : 'kpi-ok'}">
+        <div class="kpi-num">${dangerCount}</div>
+        <div class="kpi-label">理解度が低い生徒</div>
+      </div>
+      <div class="summary-kpi ${warningCount > 0 ? 'kpi-warning' : 'kpi-ok'}">
+        <div class="kpi-num">${warningCount}</div>
+        <div class="kpi-label">2週間以上授業なし</div>
+      </div>
+      <div class="summary-kpi kpi-neutral">
+        <div class="kpi-num">${students.length}</div>
+        <div class="kpi-label">総生徒数</div>
+      </div>
+    </div>
+
+    <div class="summary-table-wrap">
+      <table class="summary-table">
+        <thead>
+          <tr>
+            <th>生徒名</th>
+            <th>学年</th>
+            <th>直近理解度</th>
+            <th>最終授業日</th>
+            <th>ステータス</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  rows.forEach(r => {
+    const hasDanger  = r.flags.some(f => f.type === 'danger');
+    const hasWarning = r.flags.some(f => f.type === 'warning');
+    const rowClass   = hasDanger ? 'row-danger' : hasWarning ? 'row-warning' : '';
+
+    const flagsHTML = r.flags.map(f =>
+      `<span class="flag-badge flag-${f.type}"><i class="ti ${f.icon}"></i> ${escapeHtml(f.label)}</span>`
+    ).join('');
+
+    const compCell = r.lastComp !== null
+      ? `<div class="comp-mini">
+           <span class="mini-bar"><span class="mini-bar-fill" style="width:${Math.round(r.lastComp / 10 * 100)}%"></span></span>
+           <span>${r.lastComp}/10</span>
+         </div>`
+      : '<span class="summary-text-muted">—</span>';
+
+    const dateCell = r.lastDate
+      ? `${escapeHtml(r.lastDate)}<br><span class="summary-text-muted" style="font-size:10px">${r.daysAgo}日前</span>`
+      : '<span class="summary-text-muted">記録なし</span>';
+
+    html += `
+      <tr class="${rowClass}" data-student-idx="${r.idx}" title="${escapeHtml(r.name)} のタブへ移動">
+        <td><span class="student-name-cell"><i class="ti ti-user-circle"></i> ${escapeHtml(r.name)}</span></td>
+        <td>${escapeHtml(r.grade)}</td>
+        <td>${compCell}</td>
+        <td>${dateCell}</td>
+        <td>${flagsHTML}</td>
+      </tr>
+    `;
+  });
+
+  html += `
+        </tbody>
+      </table>
+    </div>
+
+    <div class="summary-actions">
+      <button type="button" class="action-btn action-btn-primary" id="summary-export-btn">
+        <i class="ti ti-download"></i> 全データをエクスポート
+      </button>
+      <label class="action-btn summary-import-label">
+        <i class="ti ti-upload"></i> データをインポート
+        <input type="file" id="summary-import-input" accept=".json" style="display:none">
+      </label>
+    </div>
+    <p class="summary-hint">
+      <i class="ti ti-info-circle"></i>
+      生徒の行をクリックするとそのタブへ切り替わります
+    </p>
+  `;
+
+  const summaryEl = document.getElementById('state-summary');
+  summaryEl.innerHTML = html;
+  showState('state-summary');
+
+  // 行クリック → 該当タブへ切替
+  summaryEl.querySelectorAll('tr[data-student-idx]').forEach(row => {
+    row.style.cursor = 'pointer';
+    row.addEventListener('click', () => switchTab(Number(row.dataset.studentIdx)));
+  });
+
+  // サマリー内エクスポートボタン
+  document.getElementById('summary-export-btn').addEventListener('click', exportAllData);
+
+  // サマリー内インポートボタン
+  const summaryImportInput = document.getElementById('summary-import-input');
+  summaryImportInput.addEventListener('change', e => {
+    if (e.target.files[0]) importData(e.target.files[0]);
+    e.target.value = '';
+  });
+}
+
+/* ===========================
+   初期化（イベントバインド）
+=========================== */
 document.getElementById('tab-add-btn').addEventListener('click', addStudent);
+
+// Step 6: データ管理
+document.getElementById('tab-summary-btn').addEventListener('click', renderSummaryPanel);
+document.getElementById('tab-export-btn').addEventListener('click', exportAllData);
+document.getElementById('tab-import-btn').addEventListener('click', () => {
+  document.getElementById('import-file-input').click();
+});
+document.getElementById('import-file-input').addEventListener('change', e => {
+  if (e.target.files[0]) importData(e.target.files[0]);
+  e.target.value = '';
+});
+
+injectSubNavStyles();
+renderSubNav();
+initSections();
 renderTabs();
 restoreForm(students[currentIndex]);
