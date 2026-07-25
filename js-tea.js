@@ -574,7 +574,7 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${log.comprehens
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           temperature: 0.3, // 揺らぎを抑えてフォーマットを安定化
-          maxOutputTokens: 2048,
+          maxOutputTokens: 4096,
           responseMimeType: "application/json",
           // ★構造化出力（JSONの型を絶対に崩さない設定）
           responseSchema: {
