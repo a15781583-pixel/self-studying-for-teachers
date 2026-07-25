@@ -614,7 +614,14 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${log.comprehens
     const clean  = rawText.replace(/```json|```/g, '').trim();
     const result = JSON.parse(clean);
 
-    // AI診断結果を保存
+    // ★【追加】AIが100点満点などで返してきた場合の安全補正（1〜5の範囲に強制変換）
+    let rawScore = Number(result.overallScore) || 3;
+    if (rawScore > 5) {
+      rawScore = Math.round((rawScore / 100) * 5); // 例: 50点なら2.5→3に変換
+    }
+    result.overallScore = Math.min(5, Math.max(1, rawScore)); // 確実に1〜5に抑える
+     
+   　// AI診断結果を保存
     addAIDiagnostics(studentId, result);
 
     students[currentIndex].result = result;
