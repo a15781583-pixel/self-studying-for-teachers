@@ -256,7 +256,8 @@ body {
   border-radius: 12px;
   padding: 20px;
   overflow-y: auto;
-  max-height: calc(100vh - 80px);
+  max-height: calc(100vh - 120px);
+  position: relative;
 }
 
 /* ===========================
@@ -424,7 +425,36 @@ body {
   flex-shrink: 0;
 }
 
-/* 生成ボタン */
+/* ===========================
+   入力ラベルの必須/任意バッジ
+=========================== */
+.badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+
+.badge-req {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+}
+
+.badge-opt {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+}
+
+/* ===========================
+   生成ボタン（下部固定）
+=========================== */
 .gen-btn {
   width: 100%;
   margin-top: 20px;
@@ -441,13 +471,16 @@ body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
   transition: all 0.2s ease;
+  position: sticky;
+  bottom: 0px;
+  z-index: 10;
+  box-shadow: 0 -12px 16px rgba(255, 255, 255, 0.9), 0 4px 12px rgba(37, 99, 235, 0.3);
 }
 
 .gen-btn:hover {
   background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
-  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+  box-shadow: 0 -12px 16px rgba(255, 255, 255, 0.9), 0 6px 16px rgba(37, 99, 235, 0.4);
   transform: translateY(-1px);
 }
 
@@ -520,6 +553,50 @@ body {
 }
 
 /* ===========================
+   アクションボタン（画面表示用）
+=========================== */
+.result-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'Noto Sans JP', sans-serif;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.action-btn:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.action-btn-primary {
+  background: #1b3a6b;
+  border-color: #1b3a6b;
+  color: #ffffff;
+}
+
+.action-btn-primary:hover {
+  background: #14305a;
+  border-color: #14305a;
+  color: #ffffff;
+}
+
+/* ===========================
    診断結果カード
 =========================== */
 .result-card {
@@ -529,7 +606,6 @@ body {
   margin-bottom: 10px;
 }
 
-/* カラーバリアント */
 .card-hero        { background: #eff6ff; border-color: #bfdbfe; }
 .card-urgent      { background: #fffbeb; border-color: #fde68a; }
 .card-strengths   { background: #f0fdf4; border-color: #bbf7d0; }
@@ -564,7 +640,6 @@ body {
 .card-improvements .card-body{ color: #9f1239; }
 .card-neutral .card-body     { color: #334155; }
 
-/* ヒーローカード（総合評価） */
 .hero-row {
   display: flex;
   justify-content: space-between;
@@ -597,7 +672,6 @@ body {
   text-align: right;
 }
 
-/* 2カラムグリッド（強み・改善点） */
 .two-col {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -605,7 +679,6 @@ body {
   margin-bottom: 10px;
 }
 
-/* リスト */
 .diag-list {
   list-style: none;
   padding: 0;
@@ -628,7 +701,6 @@ body {
 .card-strengths .diag-list li    { color: #166534; }
 .card-improvements .diag-list li { color: #9f1239; }
 
-/* 保護者コメント */
 .parent-block {
   background: #f1f5f9;
   border-left: 3px solid #94a3b8;
@@ -661,7 +733,6 @@ body {
   background: #f1f5f9;
 }
 
-/* エラー表示 */
 .error-box {
   background: #fff1f2;
   border: 1px solid #fecdd3;
@@ -678,8 +749,6 @@ body {
 /* ===========================
    テスト結果エントリー
 =========================== */
-
-/* エントリーカード */
 .test-entry {
   border: 1.5px solid #cbd5e1;
   border-radius: 8px;
@@ -695,7 +764,6 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
-/* カードヘッダー */
 .test-entry-header {
   display: flex;
   justify-content: space-between;
@@ -731,6 +799,7 @@ body {
   color: #94a3b8;
   transition: transform 0.2s ease;
 }
+
 .test-entry.is-open .test-toggle-icon {
   transform: rotate(180deg);
 }
@@ -762,6 +831,7 @@ body {
   text-overflow: ellipsis;
   padding-left: 4px;
 }
+
 .test-entry.is-open .test-preview {
   display: none;
 }
@@ -769,6 +839,7 @@ body {
 .test-entry-content {
   display: none;
 }
+
 .test-entry.is-open .test-entry-content {
   display: block;
 }
@@ -901,138 +972,19 @@ body {
 }
 
 /* ===========================
-   生成ボタンのSticky（下部固定）化
-=========================== */
-.gen-btn {
-  width: 100%;
-  margin-top: 20px;
-  padding: 13px 16px;
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-  color: #ffffff;
-  border: none;
-  border-radius: 8px;
-  font-size: 15px;
-  font-weight: 700;
-  font-family: 'Noto Sans JP', sans-serif;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  transition: all 0.2s ease;
-
-  /* --- Sticky固定用の設定 --- */
-  position: sticky;
-  bottom: 0px; /* パネル下端に固定 */
-  z-index: 10;
-  /* ボタン裏の文字が透けないよう、白いグラデーション影でカバー */
-  box-shadow: 0 -12px 16px rgba(255, 255, 255, 0.9), 0 4px 12px rgba(37, 99, 235, 0.3);
-}
-
-.gen-btn:hover {
-  background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
-  box-shadow: 0 -12px 16px rgba(255, 255, 255, 0.9), 0 6px 16px rgba(37, 99, 235, 0.4);
-  transform: translateY(-1px);
-}
-
-.gen-btn:active {
-  transform: translateY(0);
-}
-
-.gen-btn:disabled {
-  background: #94a3b8;
-  box-shadow: none;
-  cursor: not-allowed;
-  transform: none;
-}
-
-/* ===========================
-   入力ラベルの必須/任意バッジ
-=========================== */
-.badge {
-  display: inline-block;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 4px;
-  margin-left: 6px;
-  vertical-align: middle;
-  line-height: 1.4;
-  letter-spacing: 0;
-}
-
-/* 必須バッジ（赤系） */
-.badge-req {
-  background: #fef2f2;
-  color: #dc2626;
-  border: 1px solid #fca5a5;
-}
-
-/* 任意バッジ（グレー系） */
-.badge-opt {
-  background: #f1f5f9;
-  color: #64748b;
-  border: 1px solid #cbd5e1;
-}
-
-/* ===========================
-   アクションボタン（画面表示用）
-=========================== */
-.result-actions {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-
-.action-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px 14px;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: 'Noto Sans JP', sans-serif;
-  border: 1.5px solid #cbd5e1;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #334155;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.action-btn:hover {
-  background: #f8fafc;
-  border-color: #94a3b8;
-  color: #0f172a;
-}
-
-.action-btn-primary {
-  background: #1b3a6b;
-  border-color: #1b3a6b;
-  color: #ffffff;
-}
-
-.action-btn-primary:hover {
-  background: #14305a;
-  border-color: #14305a;
-  color: #ffffff;
-}
-
-/* ===========================
    印刷専用スタイル (@media print)
 =========================== */
 @media print {
-  /* 1. 印刷に不要な要素をすべて非表示 */
   .header,
   .tab-bar,
   #form-panel,
   .no-print,
-  .gen-btn {
+  .gen-btn,
+  .result-actions,
+  .copy-btn {
     display: none !important;
   }
 
-  /* 2. ページ全体のレイアウトを印刷用に解放 */
   body {
     background: #ffffff !important;
     color: #000000 !important;
@@ -1058,17 +1010,15 @@ body {
     display: block !important;
   }
 
-  /* 3. 印刷カード枠の調整と途切れ（改ページ）防止 */
   .result-card {
     border: 1px solid #cbd5e1 !important;
     box-shadow: none !important;
-    break-inside: avoid; /* カードの途中で改ページされるのを防ぐ */
+    break-inside: avoid;
     page-break-inside: avoid;
     margin-bottom: 12px !important;
     background: #ffffff !important;
   }
 
-  /* カラーバリアント背景色の印刷維持（背景グラフィック印刷がONの場合） */
   .card-hero        { background: #f0f7ff !important; border-color: #bfdbfe !important; }
   .card-urgent      { background: #fffbeb !important; border-color: #fde68a !important; }
   .card-strengths   { background: #f0fdf4 !important; border-color: #bbf7d0 !important; }
