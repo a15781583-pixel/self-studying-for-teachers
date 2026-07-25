@@ -32,10 +32,25 @@
   <!-- タブバー -->
   <nav class="tab-bar">
     <div class="tab-list" id="tab-list"></div>
-    <button class="tab-add-btn" id="tab-add-btn" title="生徒を追加">
-      <i class="ti ti-user-plus"></i>
-      <span>生徒を追加</span>
-    </button>
+    <div class="tab-actions">
+      <button class="tab-summary-btn" id="tab-summary-btn" title="全生徒サマリーを表示">
+        <i class="ti ti-users"></i>
+        <span>サマリー</span>
+      </button>
+      <button class="tab-add-btn" id="tab-add-btn" title="生徒を追加">
+        <i class="ti ti-user-plus"></i>
+        <span>生徒を追加</span>
+      </button>
+      <div class="data-mgmt-group">
+        <button class="data-mgmt-btn" id="tab-export-btn" title="全データをJSONでエクスポート">
+          <i class="ti ti-download"></i>
+        </button>
+        <button class="data-mgmt-btn" id="tab-import-btn" title="JSONデータをインポート">
+          <i class="ti ti-upload"></i>
+        </button>
+        <input type="file" id="import-file-input" accept=".json" style="display:none">
+      </div>
+    </div>
   </nav>
 
   <!-- メインレイアウト -->
@@ -154,9 +169,14 @@
           placeholder="例：計算は速いが見直しをしない癖がある。先週から元気がない様子。"></textarea>
       </div>
 
-      <button class="gen-btn" id="gen-btn">
-        <i class="ti ti-sparkles"></i> AI診断レポートを生成する
-      </button>
+      <div class="gen-btn-group">
+        <button class="gen-btn" id="gen-btn">
+          <i class="ti ti-sparkles"></i> AI診断レポートを生成する
+        </button>
+        <button class="next-lesson-btn" id="next-lesson-btn">
+          <i class="ti ti-calendar-event"></i> 次回授業案を生成
+        </button>
+      </div>
 
     </section>
 
@@ -184,6 +204,9 @@
 
       <!-- 診断結果 -->
       <div id="state-result" style="display: none;"></div>
+
+      <!-- 横断サマリー -->
+      <div id="state-summary" style="display: none;"></div>
 
     </section>
 
