@@ -160,9 +160,6 @@ function injectSubNavStyles() {
       padding: 10px 12px 8px;
       border-bottom: 1px solid var(--border, #e5e7eb);
       background: var(--bg, #fff);
-      position: sticky;
-      top: 0;
-      z-index: 10;
     }
     .sub-nav-btn {
       flex: 1;
@@ -471,55 +468,11 @@ function initSections() {
   if (!panel || panel.hasAttribute('data-sections-init')) return;
   panel.setAttribute('data-sections-init', '1');
 
-  const PROFILE_IDS = ['f-name', 'f-grade', 'f-goal', 'f-concerns', 'subjects'];
-  const REPORT_IDS  = ['f-comp', 'comp-scale', 'f-attitude', 'f-notes',
-                       'test-list', 'test-add-btn', 'gen-btn', 'api-key'];
-
-  /** 指定 ID を含む form-panel 直下の子要素を返す */
-  function findPanelDirectChild(id) {
-    const el = document.getElementById(id);
-    if (!el) return null;
-    let node = el;
-    while (node.parentElement && node.parentElement !== panel) {
-      node = node.parentElement;
-    }
-    return node.parentElement === panel ? node : null;
-  }
-
-  const profileSet = new Set();
-  const reportSet  = new Set();
-
-  PROFILE_IDS.forEach(id => {
-    const el = findPanelDirectChild(id);
-    if (el && el.id !== 'sub-nav') profileSet.add(el);
-  });
-
-  REPORT_IDS.forEach(id => {
-    const el = findPanelDirectChild(id);
-    if (el && el.id !== 'sub-nav') reportSet.add(el);
-  });
-
-  // 両方に含まれる要素は report 優先
-  profileSet.forEach(el => {
-    el.setAttribute('data-section', reportSet.has(el) ? 'report' : 'profile');
-  });
-  reportSet.forEach(el => {
-    if (!el.hasAttribute('data-section')) el.setAttribute('data-section', 'report');
-  });
-
-  // 未分類の子要素は report に振り分け
-  [...panel.children].forEach(child => {
-    if (child.id !== 'sub-nav' && !child.hasAttribute('data-section')) {
-      child.setAttribute('data-section', 'report');
-    }
-  });
-
   // 履歴セクションを動的に追加
   if (!document.getElementById('section-history')) {
     const historySec = document.createElement('div');
     historySec.id = 'section-history';
     historySec.className = 'mode-section';
-    historySec.setAttribute('data-section', 'history');
     panel.appendChild(historySec);
   }
 }
@@ -531,8 +484,12 @@ function showModeSection(mode) {
 
   [...panel.children].forEach(child => {
     if (child.id === 'sub-nav') return;
-    const section = child.getAttribute('data-section');
-    if (section) child.style.display = (section === mode) ? '' : 'none';
+    if (child.id === 'section-history') {
+      child.style.display = (mode === 'history') ? '' : 'none';
+    } else {
+      // profile / report どちらのモードでも全フォーム要素を表示する
+      child.style.display = (mode === 'history') ? 'none' : '';
+    }
   });
 
   if (mode === 'history') renderHistoryView();
