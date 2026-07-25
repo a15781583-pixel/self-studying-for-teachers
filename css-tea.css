@@ -917,8 +917,19 @@ body {
   gap: 8px;
   padding-top: 14px;
   margin-top: 12px;
-  /* ボタン裏の文字が透けないよう白フェード */
-  background: linear-gradient(to bottom, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 1) 22%);
+  background: #fff;
+}
+
+/* ボタン裏の文字が透けないよう白フェード（pointer-events:none でクリックを貫通させる） */
+.gen-btn-group::before {
+  content: '';
+  position: absolute;
+  top: -20px;
+  left: 0;
+  right: 0;
+  height: 20px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 1) 100%);
+  pointer-events: none;
 }
 
 /* 診断レポートボタン — hover / active / disabled */
