@@ -495,6 +495,32 @@ function showModeSection(mode) {
   if (mode === 'history') renderHistoryView();
 }
 
+/**
+ * 生徒名が設定済みの場合、「生徒名」「学年」フィールドをロック（入力不可）にする。
+ * 「授業日」「担当科目」は常に入力可能なまま維持する。
+ * ロック解除は「変更」ボタンで一時的に可能。
+ */
+function updateBasicInfoLock(s) {
+  const hasName   = (s.data['f-name'] || '').trim().length > 0;
+  const nameInput   = document.getElementById('f-name');
+  const gradeSelect = document.getElementById('f-grade');
+  const unlockBtn   = document.getElementById('basic-info-unlock-btn');
+
+  if (nameInput) {
+    nameInput.disabled = hasName;
+    nameInput.closest('.field')?.classList.toggle('field-locked', hasName);
+  }
+  if (gradeSelect) {
+    gradeSelect.disabled = hasName;
+    gradeSelect.closest('.field')?.classList.toggle('field-locked', hasName);
+  }
+
+  // 「変更」ボタンは生徒名が設定済みのときのみ表示
+  if (unlockBtn) {
+    unlockBtn.style.display = hasName ? '' : 'none';
+  }
+}
+
 /** サブナビボタン押下時: フォームを保存してモードを切り替える */
 function switchMode(mode) {
   saveCurrentForm();
@@ -802,6 +828,9 @@ function restoreForm(s) {
 
   updateSubNavActive(s.mode);
   showModeSection(s.mode);
+
+  // 基本情報フィールドのロック状態を更新
+  updateBasicInfoLock(s);
 
   if (s.lastResultType === 'lessonplan' && s.lessonPlanResult) {
     renderLessonPlanResult(s.lessonPlanResult, buildFormData());
@@ -1992,6 +2021,26 @@ document.getElementById('tab-import-btn').addEventListener('click', () => {
 document.getElementById('import-file-input').addEventListener('change', e => {
   if (e.target.files[0]) importData(e.target.files[0]);
   e.target.value = '';
+});
+
+// 基本情報「変更」ボタン: 生徒名・学年のロックを一時解除する
+document.getElementById('basic-info-unlock-btn')?.addEventListener('click', () => {
+  const nameInput   = document.getElementById('f-name');
+  const gradeSelect = document.getElementById('f-grade');
+  const unlockBtn   = document.getElementById('basic-info-unlock-btn');
+
+  if (nameInput) {
+    nameInput.disabled = false;
+    nameInput.closest('.field')?.classList.remove('field-locked');
+    nameInput.focus();
+  }
+  if (gradeSelect) {
+    gradeSelect.disabled = false;
+    gradeSelect.closest('.field')?.classList.remove('field-locked');
+  }
+  if (unlockBtn) {
+    unlockBtn.style.display = 'none';
+  }
 });
 
 injectSubNavStyles();
