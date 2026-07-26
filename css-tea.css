@@ -1442,3 +1442,58 @@ body {
     grid-template-columns: repeat(3, 1fr);
   }
 }
+/* ===========================
+   基本情報フィールド ロック状態
+=========================== */
+
+/* ロックされたフィールドの入力要素 */
+.field-locked input,
+.field-locked select {
+  background: #f1f5f9 !important;
+  color: #94a3b8 !important;
+  border-color: #e2e8f0 !important;
+  cursor: default;
+  box-shadow: none !important;
+  pointer-events: none;
+}
+
+/* ロックされたフィールドのラベル */
+.field-locked > label {
+  color: #94a3b8;
+}
+
+/* ロックアイコンをラベルに付与 */
+.field-locked > label::after {
+  content: ' 🔒';
+  font-size: 10px;
+  vertical-align: middle;
+}
+
+/* 基本情報「変更」ボタン */
+.basic-info-unlock-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: 'Noto Sans JP', sans-serif;
+  background: transparent;
+  border: 1px solid #94a3b8;
+  border-radius: 5px;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s;
+  line-height: 1;
+}
+
+.basic-info-unlock-btn:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+  border-color: #64748b;
+}
+
+.basic-info-unlock-btn .ti {
+  font-size: 13px;
+}
