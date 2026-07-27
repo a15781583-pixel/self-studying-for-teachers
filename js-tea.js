@@ -116,12 +116,17 @@ function createTestEntry() {
   return { type: '', grade: '', date: '', scores: '' };
 }
 
+function createShortTermGoalEntry() {
+  return { text: '', deadline: '' };
+}
+
 function createStudent() {
   const num  = studentCounter++;
   const data = {};
   FIELD_IDS.forEach(id => { data[id] = ''; });
-  data.subjects = [];
-  data.tests    = [createTestEntry()];
+  data.subjects        = [];
+  data.tests           = [createTestEntry()];
+  data.shortTermGoals  = [createShortTermGoalEntry()];
   return {
     id:               Date.now() + Math.random(),
     defaultName:      `生徒 ${num}`,
@@ -794,8 +799,9 @@ function saveCurrentForm() {
     const el = document.getElementById(id);
     if (el) s.data[id] = el.value;
   });
-  s.data.subjects = [...selectedSubjects];
-  s.data.tests    = collectTestEntries();
+  s.data.subjects       = [...selectedSubjects];
+  s.data.tests          = collectTestEntries();
+  s.data.shortTermGoals = collectGoalEntries();
 }
 
 function restoreForm(s) {
@@ -816,6 +822,11 @@ function restoreForm(s) {
     ? s.data.tests
     : [createTestEntry()];
   renderTestList(tests);
+
+  const goals = (s.data.shortTermGoals?.length > 0)
+    ? s.data.shortTermGoals
+    : [createShortTermGoalEntry()];
+  renderGoalList(goals);
 
   // モード自動判別（生徒タブ初回表示時のみ実行）
   if (!s.modeInitialized) {
@@ -985,16 +996,25 @@ function buildFormData() {
     }).join('\n\n');
   }
 
+  const filledGoals = collectGoalEntries().filter(g => g.text);
+  const shortTermGoalsText = filledGoals.length > 0
+    ? filledGoals.map((g, i) => {
+        const dl = g.deadline ? `（期限: ${g.deadline}）` : '';
+        return `${i + 1}. ${g.text}${dl}`;
+      }).join('\n')
+    : '未設定';
+
   return {
-    name:     getVal('f-name')     || '未入力',
-    grade:    getVal('f-grade')    || '未入力',
-    subjects: [...selectedSubjects].join('、') || '未入力',
-    scores:   scoresText,
-    comp:     compVal ? `${compVal} / 10` : '未入力',
-    attitude: getVal('f-attitude') || '未入力',
-    goal:     getVal('f-goal')     || '未入力',
-    concerns: getVal('f-concerns') || '未入力',
-    notes:    getVal('f-notes')    || '未入力',
+    name:           getVal('f-name')     || '未入力',
+    grade:          getVal('f-grade')    || '未入力',
+    subjects:       [...selectedSubjects].join('、') || '未入力',
+    scores:         scoresText,
+    comp:           compVal ? `${compVal} / 10` : '未入力',
+    attitude:       getVal('f-attitude') || '未入力',
+    goal:           getVal('f-goal')     || '未入力',
+    shortTermGoals: shortTermGoalsText,
+    concerns:       getVal('f-concerns') || '未入力',
+    notes:          getVal('f-notes')    || '未入力',
   };
 }
 
@@ -1152,6 +1172,86 @@ document.getElementById('test-add-btn').addEventListener('click', () => {
 
 
 /* ===========================
+   短期目標エントリー
+=========================== */
+
+/** #short-goal-list の中身をまとめて再描画する */
+function renderGoalList(goals) {
+  const list = document.getElementById('short-goal-list');
+  list.innerHTML = '';
+  goals.forEach((g, i) => {
+    list.appendChild(createGoalEntryElement(g, i));
+  });
+}
+
+/** 1件の短期目標エントリー要素を生成してイベントをバインドする */
+function createGoalEntryElement(g, idx) {
+  const div     = document.createElement('div');
+  div.className = 'goal-entry';
+
+  div.innerHTML = `
+    <span class="goal-entry-num">${idx + 1}</span>
+    <input
+      type="text"
+      class="goal-text-input"
+      placeholder="例：連立方程式を解けるようにする"
+      value="${escapeHtml(g.text || '')}"
+    >
+    <input
+      type="date"
+      class="goal-deadline-input"
+      value="${escapeHtml(g.deadline || '')}"
+      title="達成期限"
+    >
+    <button class="goal-remove-btn" type="button" title="この目標を削除">
+      <i class="ti ti-trash"></i>
+    </button>
+  `;
+
+  // ── 削除ボタン ──
+  div.querySelector('.goal-remove-btn').addEventListener('click', () => {
+    const list = document.getElementById('short-goal-list');
+    div.remove();
+    renumberGoalEntries();
+    if (!list.querySelector('.goal-entry')) {
+      list.appendChild(createGoalEntryElement(createShortTermGoalEntry(), 0));
+    }
+  });
+
+  return div;
+}
+
+/** DOM から短期目標エントリーデータを収集する */
+function collectGoalEntries() {
+  const entries = [];
+  document.querySelectorAll('#short-goal-list .goal-entry').forEach(entryEl => {
+    const text     = entryEl.querySelector('.goal-text-input')?.value.trim()     || '';
+    const deadline = entryEl.querySelector('.goal-deadline-input')?.value        || '';
+    entries.push({ text, deadline });
+  });
+  return entries;
+}
+
+function renumberGoalEntries() {
+  document.querySelectorAll('#short-goal-list .goal-entry').forEach((el, i) => {
+    const numEl = el.querySelector('.goal-entry-num');
+    if (numEl) numEl.textContent = i + 1;
+  });
+}
+
+// 短期目標追加ボタンの処理
+document.getElementById('goal-add-btn').addEventListener('click', () => {
+  const list   = document.getElementById('short-goal-list');
+  const newIdx = list.querySelectorAll('.goal-entry').length;
+  list.appendChild(createGoalEntryElement(createShortTermGoalEntry(), newIdx));
+
+  const panel = document.getElementById('form-panel');
+  setTimeout(() => {
+    panel.scrollTo({ top: panel.scrollHeight, behavior: 'smooth' });
+  }, 50);
+});
+
+/* ===========================
    AI診断レポートを生成する（日付選択 ＆ 構造化出力で100%安定化）
 =========================== */
 document.getElementById('gen-btn').addEventListener('click', async () => {
@@ -1221,7 +1321,10 @@ document.getElementById('gen-btn').addEventListener('click', async () => {
 名前: ${formData.name}
 学年: ${formData.grade}
 担当科目: ${formData.subjects}
-目標: ${formData.goal}
+【目標】
+長期目標: ${formData.goal}
+短期目標:
+${formData.shortTermGoals}
 現在の課題: ${formData.concerns}
 
 【学習傾向分析（数値）】
@@ -1248,6 +1351,8 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehen
 - 過去のデータと比較し、「成長できた点」「継続して取り組む課題」を具体的に述べてください。
 - 次回授業プランは今回の課題を踏まえ、単元名・教材名・つまずきやすい箇所を明記してください。
 - 保護者向けメッセージは丁寧で前向き、そのまま面談や連絡帳で渡せるクオリティにしてください。
+- 短期目標の達成状況・進捗を具体的に評価し、「今すぐ取り組むべきこと」に反映してください。
+- 週間プラン・月間プランは短期目標の達成ステップと長期目標への道筋を両軸で構成してください。
 `.trim();
 
   try {
@@ -1358,7 +1463,10 @@ document.getElementById('next-lesson-btn').addEventListener('click', async () =>
 名前: ${formData.name}
 学年: ${formData.grade}
 担当科目: ${formData.subjects}
-目標: ${formData.goal}
+【目標】
+長期目標: ${formData.goal}
+短期目標:
+${formData.shortTermGoals}
 現在の課題: ${formData.concerns}
 
 【直近の授業履歴（最大5件）】
@@ -1381,6 +1489,8 @@ ${recentLogs.length > 0
 - 生徒がつまずきやすい箇所と講師がとるべき対処法を明記してください。
 - 次回授業前に出す宿題・自習課題を具体的に提示してください。
 - 指導のヒントとして、この生徒への効果的なアプローチを1〜2文で示してください。
+- 短期目標の期限が近い場合は、その達成を最優先した集中指導プランを示してください。
+- 宿題・自習課題は短期目標に直結する内容を優先してください。
 `.trim();
 
   try {
