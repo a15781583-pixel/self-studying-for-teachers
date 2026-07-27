@@ -1507,7 +1507,7 @@ ${recentLogs.length > 0
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           temperature: 0.3,
-          maxOutputTokens: 800,
+          maxOutputTokens: 2048,
           responseMimeType: 'application/json',
           responseSchema: {
             type: 'OBJECT',
