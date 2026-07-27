@@ -564,8 +564,8 @@ function renderHistoryView() {
     const prevDiag = pastData.aiDiagnostics.length > 1
       ? pastData.aiDiagnostics[pastData.aiDiagnostics.length - 2]
       : null;
-    const score  = Number(lastDiag.overallScore) || 0;
-    const stars  = '★'.repeat(Math.min(score, 5)) + '☆'.repeat(Math.max(5 - score, 0));
+    const score  = Math.min(Math.max(Number(lastDiag.overallScore) || 0, 0), 5);
+    const stars  = '★'.repeat(score) + '☆'.repeat(5 - score);
     const pScore = prevDiag ? (Number(prevDiag.overallScore) || 0) : null;
     const diff   = pScore !== null ? score - pScore : null;
 
@@ -638,8 +638,8 @@ function renderHistoryView() {
     html += '<h3 class="history-section-title"><i class="ti ti-sparkles"></i> AI診断履歴</h3>';
     html += '<div class="accordion-list">';
     [...pastData.aiDiagnostics].reverse().forEach((diag, idx) => {
-      const score = Number(diag.overallScore) || 0;
-      const stars = '★'.repeat(Math.min(score, 5)) + '☆'.repeat(Math.max(5 - score, 0));
+      const score = Math.min(Math.max(Number(diag.overallScore) || 0, 0), 5);
+      const stars = '★'.repeat(score) + '☆'.repeat(5 - score);
       html += `
         <div class="accordion-item${idx === 0 ? ' is-open' : ''}">
           <div class="accordion-header">
