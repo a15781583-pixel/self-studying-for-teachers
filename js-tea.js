@@ -1363,7 +1363,7 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehen
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           temperature: 0.3,
-          maxOutputTokens: 3000,
+          maxOutputTokens: 8192,
           responseMimeType: "application/json",
           responseSchema: {
             type: "OBJECT",
@@ -1404,9 +1404,15 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehen
       throw new Error(msg);
     }
 
-    const data    = await response.json();
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const data = await response.json();
 
+    // トークン上限でJSONが途中で切れた場合を検出
+    const finishReason = data.candidates?.[0]?.finishReason;
+    if (finishReason === 'MAX_TOKENS') {
+      throw new Error('レスポンスがトークン上限に達しました。入力情報を減らすか、しばらく時間をおいて再試行してください。');
+    }
+
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     const clean  = rawText.replace(/```json|```/g, '').trim();
     const result = JSON.parse(clean);
 
@@ -1525,7 +1531,14 @@ ${recentLogs.length > 0
       throw new Error(msg);
     }
 
-    const data    = await response.json();
+    const data = await response.json();
+
+    // トークン上限でJSONが途中で切れた場合を検出
+    const finishReason2 = data.candidates?.[0]?.finishReason;
+    if (finishReason2 === 'MAX_TOKENS') {
+      throw new Error('レスポンスがトークン上限に達しました。入力情報を減らすか、しばらく時間をおいて再試行してください。');
+    }
+
     const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     const clean   = rawText.replace(/```json|```/g, '').trim();
     const result  = JSON.parse(clean);
