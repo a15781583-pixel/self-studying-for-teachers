@@ -84,7 +84,7 @@ function addAIDiagnostics(studentId, aiResult) {
    https://aistudio.google.com/app/apikey
 =========================== */
 const GEMINI_MODEL    = 'gemini-3.5-flash';
-const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent`;
 
 
 /* ===========================
@@ -1368,7 +1368,7 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehen
           responseSchema: {
             type: "OBJECT",
             properties: {
-              overallScore: { type: "INTEGER" },
+              overallScore: { type: "INTEGER", minimum: 1, maximum: 5 },
               overallComment: { type: "STRING" },
               strengths: { type: "ARRAY", items: { type: "STRING" } },
               improvements: { type: "ARRAY", items: { type: "STRING" } },
@@ -1681,7 +1681,8 @@ ${d.teachingTips || ''}
    診断結果をHTMLに描画する・初期化
 =========================== */
 function renderResult(d, formData) {
-  const stars  = '★'.repeat(d.overallScore) + '☆'.repeat(5 - d.overallScore);
+  const clampedScore = Math.min(Math.max(Number(d.overallScore) || 0, 0), 5);
+  const stars  = '★'.repeat(clampedScore) + '☆'.repeat(5 - clampedScore);
   const subLine = [formData.grade, formData.subjects]
     .filter(v => v !== '未入力').join(' ／ ');
 
@@ -1712,7 +1713,7 @@ function renderResult(d, formData) {
         </div>
         <div>
           <div class="score-stars">${stars}</div>
-          <div class="score-label">総合評価 ${d.overallScore} / 5</div>
+          <div class="score-label">総合評価 ${clampedScore} / 5</div>
         </div>
       </div>
       <div class="card-body">${escapeHtml(d.overallComment || '')}</div>
