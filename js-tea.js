@@ -1,6 +1,11 @@
 /* ===========================
-   Step 2: localStorage データ管理関数
+   日付取得のヘルパー関数（新規追加）
 =========================== */
+function getLocalDate() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().split('T')[0];
+}
 
 // 1. 生徒データの読み込み（なければ初期データを生成）
 function getStudentData(studentId) {
@@ -10,8 +15,8 @@ function getStudentData(studentId) {
   if (!jsonStr) {
     return {
       studentId: studentId,
-      createdAt: new Date().toISOString().split('T')[0],
-      updatedAt: new Date().toISOString().split('T')[0],
+      createdAt: getLocalDate(),
+      updatedAt: getLocalDate(),
       basicInfo: {
         name: '',
         grade: '',
@@ -25,18 +30,28 @@ function getStudentData(studentId) {
   }
 
   try {
-    return JSON.parse(jsonStr);
+    const data = JSON.parse(jsonStr);
+    data.lessonLogs = Array.isArray(data.lessonLogs) ? data.lessonLogs : [];
+    data.aiDiagnostics = Array.isArray(data.aiDiagnostics) ? data.aiDiagnostics : [];
+    return data;
   } catch (e) {
     console.error("データのパースエラー:", e);
-    return null;
+    return {
+      studentId: studentId,
+      createdAt: getLocalDate(),
+      updatedAt: getLocalDate(),
+      basicInfo: { name: '', grade: '', subjects: [], goal: '', initialConcerns: '' },
+      lessonLogs: [],
+      aiDiagnostics: []
+    };
   }
-}
+}  
 
 // 2. 生徒データの保存
 function saveStudentData(studentData) {
   if (!studentData || !studentData.studentId) return;
   
-  studentData.updatedAt = new Date().toISOString().split('T')[0];
+  studentData.updatedAt = getLocalDate();
   
   const key = `student_data_${studentData.studentId}`;
   localStorage.setItem(key, JSON.stringify(studentData));
@@ -48,10 +63,10 @@ function addLessonLog(studentId, logData) {
   
   const newLog = {
     logId: `log_${Date.now()}`,
-    date: logData.date || new Date().toISOString().split('T')[0],
+    date: logData.date || getLocalDate(),
     subject: logData.subject || '',
     unit: logData.unit || '',
-    comprehension: Number(logData.comprehension) || 5,
+    comprehension: parseComprehension(logData.comprehension),
     attitude: logData.attitude || '',
     instructorNotes: logData.instructorNotes || '',
     homeworkStatus: logData.homeworkStatus || ''
@@ -68,7 +83,7 @@ function addAIDiagnostics(studentId, aiResult) {
   
   const newDiag = {
     diagId: `diag_${Date.now()}`,
-    date: new Date().toISOString().split('T')[0],
+    date: getLocalDate(),
     ...aiResult
   };
 
@@ -622,11 +637,11 @@ function renderHistoryView() {
                 <span class="mini-bar"><span class="mini-bar-fill" style="width:${Math.round(comp / 10 * 100)}%"></span></span>
                 <span class="accordion-comp-num">${comp} / 10</span>
               </div>` : ''}
-            ${log.instructorNotes ? `<div class="accordion-field"><span class="accordion-field-label">講師メモ：</span>${escapeHtml(log.instructorNotes)}</div>` : ''}
-            ${log.attitude        ? `<div class="accordion-field"><span class="accordion-field-label">学習態度：</span>${escapeHtml(log.attitude)}</div>` : ''}
-            ${log.homeworkStatus  ? `<div class="accordion-field"><span class="accordion-field-label">宿題状況：</span>${escapeHtml(log.homeworkStatus)}</div>` : ''}
-            ${log.unit            ? `<div class="accordion-field"><span class="accordion-field-label">単元/結果：</span>${escapeHtml(log.unit)}</div>` : ''}
-          </div>
+              ${log.instructorNotes ? `<div class="accordion-field"><span class="accordion-field-label">講師メモ：</span>${escapeHtml(log.instructorNotes).replace(/\n/g, '<br>')}</div>` : ''}
+              ${log.attitude        ? `<div class="accordion-field"><span class="accordion-field-label">学習態度：</span>${escapeHtml(log.attitude).replace(/\n/g, '<br>')}</div>` : ''}
+              ${log.homeworkStatus  ? `<div class="accordion-field"><span class="accordion-field-label">宿題状況：</span>${escapeHtml(log.homeworkStatus).replace(/\n/g, '<br>')}</div>` : ''}
+              ${log.unit            ? `<div class="accordion-field"><span class="accordion-field-label">単元/結果：</span>${escapeHtml(log.unit).replace(/\n/g, '<br>')}</div>` : ''}
+              </div>
         </div>
       `;
     });
@@ -911,8 +926,11 @@ function addStudent() {
 
 function removeStudent(idx) {
   if (students.length === 1) return;
+  saveCurrentForm();
   students.splice(idx, 1);
-  if (currentIndex >= students.length) currentIndex = students.length - 1;
+  if (idx < currentIndex || currentIndex >= students.length) {
+    currentIndex = Math.max(0, currentIndex - 1);
+  }
   renderTabs();
   restoreForm(students[currentIndex]);
 }
@@ -1150,6 +1168,14 @@ function renumberTestEntries() {
   document.querySelectorAll('#test-list .test-entry').forEach((el, i) => {
     const numEl = el.querySelector('.test-entry-num');
     if (numEl) numEl.textContent = `テスト ${i + 1}`;
+
+    const input = el.querySelector('.test-type-input');
+    const datalist = el.querySelector('datalist');
+    if (input && datalist) {
+      const listId = `test-type-list-${i}`;
+      input.setAttribute('list', listId);
+      datalist.id = listId;
+    }
   });
 }
 
@@ -1271,8 +1297,7 @@ document.getElementById('gen-btn').addEventListener('click', async () => {
   showState('state-loading');
 
   const formData = buildFormData();
-
-  const lessonDate = formData.date || new Date().toISOString().split('T')[0];
+  const lessonDate = getVal('lesson-date') || new Date().toISOString().split('T')[0]; 
   const studentId  = 'std_' + encodeURIComponent(formData.name || 'default');
   
   const pastData     = getStudentData(studentId);
@@ -1303,15 +1328,6 @@ document.getElementById('gen-btn').addEventListener('click', async () => {
         return `${d >= 0 ? '+' : ''}${d}（前回 ${prev.overallScore} → 直近 ${lastDiag.overallScore}）`;
       })()
     : '初回診断のため比較なし';
-
-  addLessonLog(studentId, {
-    date: lessonDate,
-    subject: formData.subjects,
-    unit: formData.scores,
-    comprehension: formData.comp,
-    attitude: formData.attitude,
-    instructorNotes: formData.notes
-  });
 
   const prompt = `
 あなたはプロの教育コンサルタント・塾講師です。
@@ -1415,6 +1431,15 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehen
     const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     const clean  = rawText.replace(/```json|```/g, '').trim();
     const result = JSON.parse(clean);
+    // API通信成功後に授業ログと診断結果を保存する
+    addLessonLog(studentId, {
+      date: lessonDate,
+      subject: formData.subjects,
+      unit: formData.scores,
+      comprehension: formData.comp,
+      attitude: formData.attitude,
+      instructorNotes: formData.notes
+    });
 
     addAIDiagnostics(studentId, result);
 
