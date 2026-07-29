@@ -982,7 +982,7 @@ document.querySelectorAll('#subjects .chip').forEach(chip => {
   });
 });
 
-document.getElementById('f-name').addEventListener('input', e => {
+document.getElementById('f-name')?.addEventListener('input', e => {
   const name = e.target.value.trim();
   students[currentIndex].tabName = name || students[currentIndex].defaultName;
   const labels = document.querySelectorAll('#tab-list .tab-label');
@@ -1180,7 +1180,7 @@ function renumberTestEntries() {
 }
 
 // テスト追加ボタンの処理
-document.getElementById('test-add-btn').addEventListener('click', () => {
+document.getElementById('test-add-btn')?.addEventListener('click', () => {
   const list = document.getElementById('test-list');
   
   list.querySelectorAll('.test-entry').forEach(entry => {
@@ -1266,7 +1266,7 @@ function renumberGoalEntries() {
 }
 
 // 短期目標追加ボタンの処理
-document.getElementById('goal-add-btn').addEventListener('click', () => {
+document.getElementById('goal-add-btn')?.addEventListener('click', () => {
   const list   = document.getElementById('short-goal-list');
   const newIdx = list.querySelectorAll('.goal-entry').length;
   list.appendChild(createGoalEntryElement(createShortTermGoalEntry(), newIdx));
@@ -1324,8 +1324,10 @@ document.getElementById('gen-btn').addEventListener('click', async () => {
   const scoreDiffText = (pastData && pastData.aiDiagnostics.length > 1 && lastDiag)
     ? (() => {
         const prev = pastData.aiDiagnostics[pastData.aiDiagnostics.length - 2];
-        const d    = Number(lastDiag.overallScore) - Number(prev.overallScore);
-        return `${d >= 0 ? '+' : ''}${d}（前回 ${prev.overallScore} → 直近 ${lastDiag.overallScore}）`;
+        const currentScore = Number(lastDiag.overallScore) || 0;
+        const prevScore = Number(prev?.overallScore) || 0;
+        const d = currentScore - prevScore;
+        return `${d >= 0 ? '+' : ''}${d}（前回 ${prevScore} → 直近 ${currentScore}）`;
       })()
     : '初回診断のため比較なし';
 
@@ -1428,9 +1430,15 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehen
       throw new Error('レスポンスがトークン上限に達しました。入力情報を減らすか、しばらく時間をおいて再試行してください。');
     }
 
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const clean  = rawText.replace(/```json|```/g, '').trim();
-    const result = JSON.parse(clean);
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!rawText) {
+      throw new Error('AIからのレスポンスを取得できませんでした。');
+    }
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('有効なJSONデータが検出されませんでした。');
+    }
+    const result = JSON.parse(jsonMatch[0]);
     // API通信成功後に授業ログと診断結果を保存する
     addLessonLog(studentId, {
       date: lessonDate,
@@ -2159,15 +2167,15 @@ function renderSummaryPanel() {
 /* ===========================
    初期化（イベントバインド）
 =========================== */
-document.getElementById('tab-add-btn').addEventListener('click', addStudent);
+document.getElementById('tab-add-btn')?.addEventListener('click', addStudent);
 
 // Step 6: データ管理
-document.getElementById('tab-summary-btn').addEventListener('click', renderSummaryPanel);
-document.getElementById('tab-export-btn').addEventListener('click', exportAllData);
-document.getElementById('tab-import-btn').addEventListener('click', () => {
-  document.getElementById('import-file-input').click();
+document.getElementById('tab-summary-btn')?.addEventListener('click', renderSummaryPanel);
+document.getElementById('tab-export-btn')?.addEventListener('click', exportAllData);
+document.getElementById('tab-import-btn')?.addEventListener('click', () => {
+  document.getElementById('import-file-input')?.click();
 });
-document.getElementById('import-file-input').addEventListener('change', e => {
+document.getElementById('import-file-input')?.addEventListener('change', e => {
   if (e.target.files[0]) importData(e.target.files[0]);
   e.target.value = '';
 });
