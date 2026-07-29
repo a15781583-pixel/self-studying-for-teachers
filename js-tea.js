@@ -101,6 +101,46 @@ function addAIDiagnostics(studentId, aiResult) {
 const GEMINI_MODEL    = 'gemini-3.5-flash';
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent`;
 
+/* ===========================
+   API通信用ヘルパー関数（自動リトライ機能付き）
+=========================== */
+async function fetchGeminiWithRetry(apiKey, requestBody, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}));
+        const msg = errBody?.error?.message || `${response.status} ${response.statusText}`;
+        
+        // 503(サーバー高負荷) または 429(リクエスト過多) の場合のみリトライ
+        if (response.status === 503 || response.status === 429) {
+          if (i < maxRetries - 1) {
+            console.warn(`API高負荷のため再試行します（${i + 1}回目）...`);
+            // 待機時間を徐々に長くする (2秒 → 4秒)
+            const waitTime = (i + 1) * 2000;
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+            continue; // ループの最初に戻って再リクエスト
+          }
+        }
+        // その他のエラー、または上限回数に達した場合はエラーを投げる
+        throw new Error(msg);
+      }
+
+      // 成功した場合はJSONを返す
+      return await response.json();
+      
+    } catch (err) {
+      // ネットワークエラーなどの場合もリトライ
+      if (i === maxRetries - 1) throw err;
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+  }
+}
 
 /* ===========================
    フォームフィールド一覧
@@ -1374,55 +1414,44 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehen
 `.trim();
 
   try {
-    const response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens: 8192,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: "OBJECT",
-            properties: {
-              overallScore: { type: "INTEGER", minimum: 1, maximum: 5 },
-              overallComment: { type: "STRING" },
-              strengths: { type: "ARRAY", items: { type: "STRING" } },
-              improvements: { type: "ARRAY", items: { type: "STRING" } },
-              weeklyPlan: { type: "STRING" },
-              monthlyPlan: { type: "STRING" },
-              nextLessonPlan: {
-                type: "OBJECT",
-                properties: {
-                  objective: { type: "STRING" },
-                  keyPoints: { type: "ARRAY", items: { type: "STRING" } },
-                  materials: { type: "STRING" },
-                  pitfalls:  { type: "ARRAY", items: { type: "STRING" } }
-                },
-                required: ["objective", "keyPoints", "materials", "pitfalls"]
+    // 共通関数を呼び出す（最大3回まで自動で再試行してくれます）
+    const data = await fetchGeminiWithRetry(apiKey, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 8192,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            overallScore: { type: "INTEGER", minimum: 1, maximum: 5 },
+            overallComment: { type: "STRING" },
+            strengths: { type: "ARRAY", items: { type: "STRING" } },
+            improvements: { type: "ARRAY", items: { type: "STRING" } },
+            weeklyPlan: { type: "STRING" },
+            monthlyPlan: { type: "STRING" },
+            nextLessonPlan: {
+              type: "OBJECT",
+              properties: {
+                objective: { type: "STRING" },
+                keyPoints: { type: "ARRAY", items: { type: "STRING" } },
+                materials: { type: "STRING" },
+                pitfalls:  { type: "ARRAY", items: { type: "STRING" } }
               },
-              instructorAdvice: { type: "STRING" },
-              parentMessage: { type: "STRING" },
-              urgentAction: { type: "STRING" }
+              required: ["objective", "keyPoints", "materials", "pitfalls"]
             },
-            required: [
-              "overallScore", "overallComment", "strengths", "improvements",
-              "weeklyPlan", "monthlyPlan", "nextLessonPlan",
-              "instructorAdvice", "parentMessage", "urgentAction"
-            ]
-          }
-        },
-      }),
+            instructorAdvice: { type: "STRING" },
+            parentMessage: { type: "STRING" },
+            urgentAction: { type: "STRING" }
+          },
+          required: [
+            "overallScore", "overallComment", "strengths", "improvements",
+            "weeklyPlan", "monthlyPlan", "nextLessonPlan",
+            "instructorAdvice", "parentMessage", "urgentAction"
+          ]
+        }
+      }
     });
-
-    if (!response.ok) {
-      const errBody = await response.json().catch(() => ({}));
-      const msg = errBody?.error?.message || `${response.status} ${response.statusText}`;
-      throw new Error(msg);
-    }
-
-    const data = await response.json();
 
     // トークン上限でJSONが途中で切れた場合を検出
     const finishReason = data.candidates?.[0]?.finishReason;
@@ -1533,38 +1562,27 @@ ${recentLogs.length > 0
 `.trim();
 
   try {
-    const response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens: 2048,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: 'OBJECT',
-            properties: {
-              objective:    { type: 'STRING' },
-              keyPoints:    { type: 'ARRAY', items: { type: 'STRING' } },
-              materials:    { type: 'STRING' },
-              pitfalls:     { type: 'ARRAY', items: { type: 'STRING' } },
-              homework:     { type: 'STRING' },
-              teachingTips: { type: 'STRING' }
-            },
-            required: ['objective', 'keyPoints', 'materials', 'pitfalls', 'homework', 'teachingTips']
-          }
+    // 共通関数を呼び出す（最大3回まで自動で再試行してくれます）
+    const data = await fetchGeminiWithRetry(apiKey, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 2048,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'OBJECT',
+          properties: {
+            objective:    { type: 'STRING' },
+            keyPoints:    { type: 'ARRAY', items: { type: 'STRING' } },
+            materials:    { type: 'STRING' },
+            pitfalls:     { type: 'ARRAY', items: { type: 'STRING' } },
+            homework:     { type: 'STRING' },
+            teachingTips: { type: 'STRING' }
+          },
+          required: ['objective', 'keyPoints', 'materials', 'pitfalls', 'homework', 'teachingTips']
         }
-      })
+      }
     });
-
-    if (!response.ok) {
-      const errBody = await response.json().catch(() => ({}));
-      const msg = errBody?.error?.message || `${response.status} ${response.statusText}`;
-      throw new Error(msg);
-    }
-
-    const data = await response.json();
 
     // トークン上限でJSONが途中で切れた場合を検出
     const finishReason2 = data.candidates?.[0]?.finishReason;
