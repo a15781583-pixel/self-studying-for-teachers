@@ -146,7 +146,8 @@ async function fetchGeminiWithRetry(apiKey, requestBody, maxRetries = 3) {
    フォームフィールド一覧
 =========================== */
 const FIELD_IDS = [
-  'f-name', 'f-grade', 
+  'f-name', 'f-grade',
+  'lesson-date',
   'f-comp',
   'f-attitude',
   'f-goal', 'f-concerns', 'f-notes',
@@ -163,6 +164,11 @@ const TEST_TYPE_SUGGESTIONS = [
 /* ===========================
    生徒データ管理
 =========================== */
+/** 理解度グラフの最後に渡したログを保持（リサイズ再描画用） */
+let _chartLogs = null;
+/** リサイズタイマーID（デバウンス用） */
+let _chartResizeTimer = null;
+
 let studentCounter = 1;
 let currentIndex   = 0;
 let students       = [createStudent()];
@@ -602,7 +608,7 @@ function renderHistoryView() {
     return;
   }
 
-  const studentId = 'std_' + encodeURIComponent(name);
+  const studentId = 'std_' + students[currentIndex].id;
   const pastData  = getStudentData(studentId);
 
   if (!pastData ||
@@ -741,6 +747,9 @@ function parseComprehension(val) {
 function drawComprehensionChart(logs) {
   const canvas = document.getElementById('comp-chart');
   if (!canvas || !canvas.getContext) return;
+
+  // リサイズ再描画のためにログを保持
+  _chartLogs = logs;
 
   const data = logs.slice(-10);
 
@@ -886,9 +895,7 @@ function restoreForm(s) {
   // モード自動判別（生徒タブ初回表示時のみ実行）
   if (!s.modeInitialized) {
     const name = (s.data['f-name'] || '').trim();
-    s.mode = name
-      ? detectMode('std_' + encodeURIComponent(name))
-      : 'profile';
+    s.mode = detectMode('std_' + s.id);
     s.modeInitialized = true;
   }
 
@@ -967,6 +974,8 @@ function addStudent() {
 function removeStudent(idx) {
   if (students.length === 1) return;
   saveCurrentForm();
+  const removedKey = `student_data_std_${students[idx].id}`;
+  localStorage.removeItem(removedKey);
   students.splice(idx, 1);
   if (idx < currentIndex || currentIndex >= students.length) {
     currentIndex = Math.max(0, currentIndex - 1);
@@ -980,7 +989,8 @@ function escapeHtml(str) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function showInlineError(message) {
@@ -1338,7 +1348,7 @@ document.getElementById('gen-btn').addEventListener('click', async () => {
 
   const formData = buildFormData();
   const lessonDate = getVal('lesson-date') || new Date().toISOString().split('T')[0]; 
-  const studentId  = 'std_' + encodeURIComponent(formData.name || 'default');
+  const studentId  = 'std_' + students[currentIndex].id;
   
   const pastData     = getStudentData(studentId);
   const previousLogs = pastData ? pastData.lessonLogs.slice(-10) : [];
@@ -1519,7 +1529,7 @@ document.getElementById('next-lesson-btn').addEventListener('click', async () =>
 
   const formData   = buildFormData();
   const lessonDate = getVal('lesson-date') || new Date().toISOString().split('T')[0];
-  const studentId  = 'std_' + encodeURIComponent(formData.name || 'default');
+  const studentId  = 'std_' + students[currentIndex].id;
   const pastData   = getStudentData(studentId);
   const recentLogs = pastData ? pastData.lessonLogs.slice(-5) : [];
 
@@ -1948,9 +1958,7 @@ function exportAllData() {
   };
 
   students.forEach(s => {
-    const name = (s.data['f-name'] || '').trim();
-    if (!name) return;
-    const sid    = 'std_' + encodeURIComponent(name);
+    const sid    = 'std_' + s.id;
     const record = getStudentData(sid);
     if (record) exportObj.studentRecords[sid] = record;
   });
@@ -2039,8 +2047,7 @@ function renderSummaryPanel() {
     const name  = (s.data['f-name'] || '').trim() || s.defaultName;
     const grade = s.data['f-grade'] || '—';
 
-    const rawName = (s.data['f-name'] || '').trim();
-    const record  = rawName ? getStudentData('std_' + encodeURIComponent(rawName)) : null;
+    const record  = getStudentData('std_' + s.id);
     const logs    = record ? record.lessonLogs : [];
 
     // 直近理解度（記録があるログの最新値）
@@ -2221,7 +2228,7 @@ function injectSaveLogButton() {
       return;
     }
 
-    const studentId = 'std_' + encodeURIComponent(formData.name);
+    const studentId = 'std_' + students[currentIndex].id;
 
     // 既存の関数を使って授業ログを localStorage に保存
     addLessonLog(studentId, {
@@ -2283,3 +2290,42 @@ initSections();
 renderTabs();
 restoreForm(students[currentIndex]);
 injectSaveLogButton();
+
+/* ===========================
+   5. APIキーの永続化
+   - ページ読み込み時に localStorage から自動復元
+   - 入力変更のたびに localStorage へ保存（空の場合は削除）
+=========================== */
+(function initApiKeyPersistence() {
+  const apiKeyEl = document.getElementById('api-key');
+  if (!apiKeyEl) return;
+
+  // 復元
+  const saved = localStorage.getItem('gemini_api_key');
+  if (saved) apiKeyEl.value = saved;
+
+  // 自動保存
+  apiKeyEl.addEventListener('input', () => {
+    const val = apiKeyEl.value.trim();
+    if (val) {
+      localStorage.setItem('gemini_api_key', val);
+    } else {
+      localStorage.removeItem('gemini_api_key');
+    }
+  });
+})();
+
+/* ===========================
+   6. 理解度グラフのリサイズ対応
+   - ウィンドウ幅が変わったとき、グラフが表示中であれば再描画する
+   - デバウンス 150ms でパフォーマンスを確保
+=========================== */
+window.addEventListener('resize', () => {
+  clearTimeout(_chartResizeTimer);
+  _chartResizeTimer = setTimeout(() => {
+    const canvas = document.getElementById('comp-chart');
+    if (canvas && _chartLogs) {
+      drawComprehensionChart(_chartLogs);
+    }
+  }, 150);
+});
