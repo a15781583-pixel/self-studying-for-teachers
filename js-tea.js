@@ -102,6 +102,12 @@ const GEMINI_MODEL    = 'gemini-3.5-flash';
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent`;
 
 /* ===========================
+   localStorage キー定数
+=========================== */
+const STUDENTS_TABS_KEY  = 'app_students_tabs';
+const STUDENTS_INDEX_KEY = 'app_students_index';
+
+/* ===========================
    API通信用ヘルパー関数（自動リトライ機能付き）
 =========================== */
 async function fetchGeminiWithRetry(apiKey, requestBody, maxRetries = 3) {
@@ -127,16 +133,18 @@ async function fetchGeminiWithRetry(apiKey, requestBody, maxRetries = 3) {
             continue; // ループの最初に戻って再リクエスト
           }
         }
-        // その他のエラー、または上限回数に達した場合はエラーを投げる
-        throw new Error(msg);
+        // リトライ対象外のエラーにはフラグを付けて投げる
+        const error = new Error(msg);
+        error.isFatal = true;
+        throw error;
       }
 
       // 成功した場合はJSONを返す
       return await response.json();
       
     } catch (err) {
-      // ネットワークエラーなどの場合もリトライ
-      if (i === maxRetries - 1) throw err;
+      // isFatalフラグがある、または上限回数に達した場合はそのまま投げる
+      if (err.isFatal || i === maxRetries - 1) throw err;
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
@@ -171,7 +179,7 @@ let _chartResizeTimer = null;
 
 let studentCounter = 1;
 let currentIndex   = 0;
-let students       = [createStudent()];
+let students       = [];
 
 function createTestEntry() {
   return { type: '', grade: '', date: '', scores: '' };
@@ -199,6 +207,73 @@ function createStudent() {
     mode:             'profile',     // 'profile' | 'report' | 'history'
     modeInitialized:  false,         // 初回タブ表示時に detectMode() で上書きするフラグ
   };
+}
+
+/* ===========================
+   タブ・基本情報の永続化
+=========================== */
+
+/**
+ * students 配列と currentIndex を localStorage に保存する。
+ * saveCurrentForm() やタブ操作のたびに呼び出すことで
+ * ページリロード後もタブ一覧・入力内容を復元できる。
+ * result / lessonPlanResult は容量節約のため保存しない
+ * （AI診断の生ログは lessonLogs / aiDiagnostics に別途保存済み）。
+ */
+function saveStudentsTabs() {
+  try {
+    const toSave = students.map(s => ({
+      id:              s.id,
+      defaultName:     s.defaultName,
+      tabName:         s.tabName,
+      data:            s.data,
+      mode:            s.mode,
+      modeInitialized: s.modeInitialized,
+      lastResultType:  s.lastResultType,
+    }));
+    localStorage.setItem(STUDENTS_TABS_KEY,  JSON.stringify(toSave));
+    localStorage.setItem(STUDENTS_INDEX_KEY, String(currentIndex));
+  } catch (e) {
+    console.warn('タブ情報の保存に失敗しました:', e);
+  }
+}
+
+/**
+ * ページロード時に students 配列を localStorage から復元する。
+ * 保存データがない場合は初期状態（「生徒 1」タブのみ）を生成する。
+ */
+function initStudents() {
+  const saved = localStorage.getItem(STUDENTS_TABS_KEY);
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        students = parsed.map(t => ({
+          id:              t.id !== undefined ? t.id : Date.now() + Math.random(),
+          defaultName:     t.defaultName    || '生徒',
+          tabName:         t.tabName        || t.defaultName || '生徒',
+          data:            t.data           || {},
+          result:          null,
+          lessonPlanResult: null,
+          lastResultType:  t.lastResultType || 'diagnosis',
+          mode:            t.mode           || 'profile',
+          modeInitialized: typeof t.modeInitialized === 'boolean' ? t.modeInitialized : false,
+        }));
+        // studentCounter を復元した生徒数より大きい値に設定し、番号重複を防ぐ
+        studentCounter = students.length + 1;
+        // currentIndex を復元（範囲外の場合は 0 にフォールバック）
+        const savedIdx = parseInt(localStorage.getItem(STUDENTS_INDEX_KEY) || '0', 10);
+        currentIndex = (Number.isFinite(savedIdx) && savedIdx >= 0 && savedIdx < students.length)
+          ? savedIdx : 0;
+        return;
+      }
+    } catch (e) {
+      console.warn('タブ情報の復元に失敗しました:', e);
+    }
+  }
+  // 保存データなし → 初期状態を生成
+  students     = [createStudent()];
+  currentIndex = 0;
 }
 
 /* ===========================
@@ -866,6 +941,7 @@ function saveCurrentForm() {
   s.data.subjects       = [...selectedSubjects];
   s.data.tests          = collectTestEntries();
   s.data.shortTermGoals = collectGoalEntries();
+  saveStudentsTabs(); // フォーム内容の変更を即時永続化
 }
 
 function restoreForm(s) {
@@ -957,6 +1033,7 @@ function renderTabs() {
 function switchTab(idx) {
   saveCurrentForm();
   currentIndex = idx;
+  saveStudentsTabs(); // currentIndex の変更を永続化
   renderTabs();
   restoreForm(students[currentIndex]);
 }
@@ -965,6 +1042,7 @@ function addStudent() {
   saveCurrentForm();
   students.push(createStudent());
   currentIndex = students.length - 1;
+  saveStudentsTabs(); // 新規タブを永続化（saveCurrentForm()はpush前に呼ばれているため別途保存）
   renderTabs();
   restoreForm(students[currentIndex]);
   const list = document.getElementById('tab-list');
@@ -980,6 +1058,7 @@ function removeStudent(idx) {
   if (idx < currentIndex || currentIndex >= students.length) {
     currentIndex = Math.max(0, currentIndex - 1);
   }
+  saveStudentsTabs(); // タブ削除後の状態を永続化（splice後に呼ぶ必要がある）
   renderTabs();
   restoreForm(students[currentIndex]);
 }
@@ -1039,6 +1118,7 @@ document.getElementById('f-name')?.addEventListener('input', e => {
   if (labels[currentIndex]) {
     labels[currentIndex].textContent = students[currentIndex].tabName;
   }
+  saveStudentsTabs(); // タブ名（生徒名）の変更を即時永続化
 });
 
 function getVal(id) {
@@ -2006,6 +2086,7 @@ function importData(file) {
             modeInitialized:  false,
           }));
           currentIndex = 0;
+          saveStudentsTabs(); // インポートしたタブ一覧を永続化
           renderTabs();
           restoreForm(students[currentIndex]);
         }
@@ -2287,6 +2368,7 @@ document.getElementById('basic-info-unlock-btn')?.addEventListener('click', () =
 injectSubNavStyles();
 renderSubNav();
 initSections();
+initStudents(); // localStorage からタブ一覧・基本情報を復元（ページリロード対策）
 renderTabs();
 restoreForm(students[currentIndex]);
 injectSaveLogButton();
@@ -2324,7 +2406,8 @@ window.addEventListener('resize', () => {
   clearTimeout(_chartResizeTimer);
   _chartResizeTimer = setTimeout(() => {
     const canvas = document.getElementById('comp-chart');
-    if (canvas && _chartLogs) {
+    // Canvasが表示されている（幅を持っている）場合のみ再描画する
+    if (canvas && canvas.offsetWidth > 0 && _chartLogs) {
       drawComprehensionChart(_chartLogs);
     }
   }, 150);
