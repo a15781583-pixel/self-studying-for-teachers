@@ -1407,10 +1407,11 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehen
 【指示】
 - 学習傾向分析の数値（理解度の傾向・スコア変化）を必ず言及し、変化を具体的に評価してください。
 - 過去のデータと比較し、「成長できた点」「継続して取り組む課題」を具体的に述べてください。
-- 次回授業プランは今回の課題を踏まえ、単元名・教材名・つまずきやすい箇所を明記してください。
+- 複数の科目が含まれる場合は、全体をぼやかさず「【英語】〇〇」「【数学】〇〇」のように科目ごとに明確に見出しをつけて具体的に診断してください。
+- 次回授業プランは今回の課題を踏まえ、科目ごとに単元名・教材名・つまずきやすい箇所を明記してください。
 - 保護者向けメッセージは丁寧で前向き、そのまま面談や連絡帳で渡せるクオリティにしてください。
 - 短期目標の達成状況・進捗を具体的に評価し、「今すぐ取り組むべきこと」に反映してください。
-- 週間プラン・月間プランは短期目標の達成ステップと長期目標への道筋を両軸で構成してください。
+- 週間プラン・月間プランは、科目ごとのバランスを考慮し、短期目標の達成ステップと長期目標への道筋を構成してください。
 `.trim();
 
   try {
@@ -1552,13 +1553,13 @@ ${recentLogs.length > 0
 
 【指示】
 - 今回の理解度・課題を踏まえ、次回の授業目標を1文で端的に示してください。
-- 重点指導ポイントは3〜4点に絞り、具体的な単元名・問題タイプを挙げてください。
+- 複数の科目が含まれる場合は、重点指導ポイント、教材、宿題、つまずきやすい箇所を「【英語】〇〇」「【数学】〇〇」のように科目別に分けて明確に記載してください。
+- 重点指導ポイントは科目ごとに具体的に単元名・問題タイプを挙げてください。
 - 使用する教材・参考書・ページ数を具体的に記載してください。
 - 生徒がつまずきやすい箇所と講師がとるべき対処法を明記してください。
 - 次回授業前に出す宿題・自習課題を具体的に提示してください。
 - 指導のヒントとして、この生徒への効果的なアプローチを1〜2文で示してください。
 - 短期目標の期限が近い場合は、その達成を最優先した集中指導プランを示してください。
-- 宿題・自習課題は短期目標に直結する内容を優先してください。
 `.trim();
 
   try {
@@ -2183,6 +2184,64 @@ function renderSummaryPanel() {
 }
 
 /* ===========================
+   授業記録のみを保存する（新規追加）
+=========================== */
+
+/**
+ * #gen-btn の直後に「授業記録のみ保存する」ボタンを動的挿入し、
+ * クリック時のイベントリスナーを設定する。
+ * 初期化時に一度だけ呼ばれる想定（二重挿入ガード付き）。
+ */
+function injectSaveLogButton() {
+  // HTML に既存のボタンがあればそのまま使い、なければ動的生成して gen-btn の直後に挿入
+  let btn = document.getElementById('save-log-btn');
+
+  if (!btn) {
+    const genBtn = document.getElementById('gen-btn');
+    if (!genBtn) return;
+
+    btn = document.createElement('button');
+    btn.type      = 'button';
+    btn.className = 'action-btn';
+    btn.id        = 'save-log-btn';
+    btn.innerHTML = '<i class="ti ti-save"></i> 授業記録のみ保存する';
+
+    // gen-btn の直後に挿入
+    genBtn.insertAdjacentElement('afterend', btn);
+  }
+
+  // ── イベントリスナー（HTML 既存・動的生成どちらも対応）──
+  btn.addEventListener('click', () => {
+    const formData   = buildFormData();
+    const lessonDate = getVal('lesson-date') || getLocalDate();
+
+    // 生徒名が未入力の場合はバリデーションエラー
+    if (!formData.name || formData.name === '未入力') {
+      showToast('生徒名を入力してください', 'error');
+      return;
+    }
+
+    const studentId = 'std_' + encodeURIComponent(formData.name);
+
+    // 既存の関数を使って授業ログを localStorage に保存
+    addLessonLog(studentId, {
+      date:            lessonDate,
+      subject:         formData.subjects,
+      unit:            formData.scores,
+      comprehension:   formData.comp,
+      attitude:        formData.attitude,
+      instructorNotes: formData.notes
+    });
+
+    // 保存成功のトースト通知
+    showToast('授業記録を保存しました ✓');
+
+    // 履歴タブに切り替えて保存内容を確認しやすくする
+    switchMode('history');
+  });
+}
+
+/* ===========================
    初期化（イベントバインド）
 =========================== */
 document.getElementById('tab-add-btn')?.addEventListener('click', addStudent);
@@ -2223,3 +2282,4 @@ renderSubNav();
 initSections();
 renderTabs();
 restoreForm(students[currentIndex]);
+injectSaveLogButton();
