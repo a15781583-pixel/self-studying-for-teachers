@@ -1,233 +1,1732 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>生徒診断ツール</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.x/dist/tabler-icons.min.css">
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css-tea.css">
-</head>
-<body>
+/* ===========================
+   リセット・ベース
+=========================== */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
-  <!-- ヘッダー -->
-  <header class="header">
-    <div class="header-left">
-      <i class="ti ti-book-2"></i>
-      <span class="header-title">生徒診断ツール</span>
-    </div>
-    <div class="header-right">
-      <div class="api-key-group">
-        <div class="api-key-top">
-          <label for="api-key">APIキー</label>
-          <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" class="api-key-link">
-            <i class="ti ti-external-link"></i> APIキーはこちらから
-          </a>
-        </div>
-        <input type="password" id="api-key" placeholder="AIza..." />
-      </div>
-    </div>
-  </header>
+body {
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 14px;
+  color: #1e293b;
+  background: #f0f4f8;
+  min-height: 100vh;
+}
 
-  <!-- タブバー -->
-  <nav class="tab-bar">
-    <div class="tab-list" id="tab-list"></div>
-    <div class="tab-actions">
-      <button class="tab-summary-btn" id="tab-summary-btn" title="全生徒サマリーを表示">
-        <i class="ti ti-users"></i>
-        <span>サマリー</span>
-      </button>
-      <button class="tab-add-btn" id="tab-add-btn" title="生徒を追加">
-        <i class="ti ti-user-plus"></i>
-        <span>生徒を追加</span>
-      </button>
-      <div class="data-mgmt-group">
-        <button class="data-mgmt-btn" id="tab-export-btn" title="全データをJSONでエクスポート">
-          <i class="ti ti-download"></i>
-        </button>
-        <button class="data-mgmt-btn" id="tab-import-btn" title="JSONデータをインポート">
-          <i class="ti ti-upload"></i>
-        </button>
-        <input type="file" id="import-file-input" accept=".json" style="display:none">
-      </div>
-    </div>
-  </nav>
+/* ===========================
+   ヘッダー
+=========================== */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: #1b3a6b;
+  color: #fff;
+  gap: 16px;
+}
 
-  <!-- メインレイアウト -->
-  <main class="layout">
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
-    <!-- 左パネル：入力フォーム -->
-    <section class="panel" id="form-panel">
+.header-left .ti {
+  font-size: 22px;
+}
 
-      <h2 class="sec-title">
-        基本情報
-        <button type="button" id="basic-info-unlock-btn" class="basic-info-unlock-btn" title="生徒名・学年を編集する" style="display:none;">
-          <i class="ti ti-edit"></i> 変更
-        </button>
-      </h2>
+.header-title {
+  font-size: 16px;
+  font-weight: 700;
+}
 
-      <div class="field">
-        <label for="f-name">生徒名</label>
-        <input type="text" id="f-name" placeholder="例：田中 太郎">
-      </div>
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 
-      <div class="field">
-        <label for="f-grade">学年</label>
-        <select id="f-grade">
-          <option value="">選択してください</option>
-          <optgroup label="小学生">
-            <option>小学1年</option>
-            <option>小学2年</option>
-            <option>小学3年</option>
-            <option>小学4年</option>
-            <option>小学5年</option>
-            <option>小学6年</option>
-          </optgroup>
-          <optgroup label="中学生">
-            <option>中学1年</option>
-            <option>中学2年</option>
-            <option>中学3年</option>
-          </optgroup>
-          <optgroup label="高校生">
-            <option>高校1年</option>
-            <option>高校2年</option>
-            <option>高校3年</option>
-          </optgroup>
-        </select>
-      </div>
+.header-right label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  white-space: nowrap;
+}
 
-            <!-- HTMLのフォーム内に追加してください -->
-      <div class="field">
-        <label for="lesson-date">授業日</label>
-        <input type="date" id="lesson-date" style="max-width: 180px;">
-      </div>
-      
-      <div class="field">
-        <label>担当科目（複数選択可）</label>
-        <div class="chip-group" id="subjects">
-          <button class="chip" data-val="国語">国語</button>
-          <button class="chip" data-val="算数/数学">算数/数学</button>
-          <button class="chip" data-val="英語">英語</button>
-          <button class="chip" data-val="理科">理科</button>
-          <button class="chip" data-val="社会">社会</button>
-          <button class="chip" data-val="その他">その他</button>
-        </div>
-      </div>
+.header-right input {
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  width: 220px;
+}
 
-      <h2 class="sec-title">学習状況</h2>
+.header-right input::placeholder {
+  color: rgba(255, 255, 255, 0.45);
+}
 
-      <!-- テスト結果セクション -->
-      <div class="field">
-        <label>テスト結果</label>
-        <div id="test-list">
-          <!-- JS が動的に生成 -->
-        </div>
-        <button type="button" class="test-add-btn" id="test-add-btn">
-          <i class="ti ti-plus"></i> テストを追加
-        </button>
-      </div>
+.api-key-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 
-      <div class="field">
-        <label>授業の理解度（10段階）</label>
-        <div class="scale-row">
-          <span class="scale-edge-label">理解不足</span>
-          <div class="scale-group" id="comp-scale">
-            <button class="scale-btn" data-val="1">1</button>
-            <button class="scale-btn" data-val="2">2</button>
-            <button class="scale-btn" data-val="3">3</button>
-            <button class="scale-btn" data-val="4">4</button>
-            <button class="scale-btn" data-val="5">5</button>
-            <button class="scale-btn" data-val="6">6</button>
-            <button class="scale-btn" data-val="7">7</button>
-            <button class="scale-btn" data-val="8">8</button>
-            <button class="scale-btn" data-val="9">9</button>
-            <button class="scale-btn" data-val="10">10</button>
-          </div>
-          <span class="scale-edge-label">完全理解</span>
-        </div>
-        <input type="hidden" id="f-comp" value="">
-      </div>
+.api-key-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
 
-      <h2 class="sec-title">学習態度・習慣</h2>
+.api-key-top label {
+  margin-bottom: 0;
+}
 
-      <div class="field">
-        <label for="f-attitude">学習態度・自習状況（講師所見）</label>
-        <textarea id="f-attitude" style="min-height: 80px;"
-          placeholder="例：授業中の集中力は高いが家での自習が少ない。週2〜3回は自習に来ている。積極的に質問するようになってきた。"></textarea>
-      </div>
+.api-key-link {
+  font-size: 11px;
+  color: #93c5fd;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
 
-      <h2 class="sec-title">目標・課題・メモ</h2>
+.api-key-link:hover {
+  color: #bfdbfe;
+  text-decoration: underline;
+}
 
-      <div class="field">
-        <label for="f-goal">長期目標（志望校・検定など）</label>
-        <input type="text" id="f-goal" placeholder="例：○○高校合格、英検3級取得">
-      </div>
+.api-key-link .ti {
+  font-size: 12px;
+}
 
-      <div class="field">
-        <label>短期目標（複数設定可）</label>
-        <div id="short-goal-list"></div>
-        <button type="button" class="goal-add-btn" id="goal-add-btn">
-          <i class="ti ti-plus"></i> 短期目標を追加
-        </button>
-      </div>
+/* ===========================
+   タブバー
+=========================== */
+.tab-bar {
+  display: flex;
+  align-items: stretch;
+  background: #142d54;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0 16px 0 12px;
+  gap: 8px;
+  overflow: hidden;
+}
 
-      <div class="field">
-        <label for="f-concerns">現在の課題・悩み</label>
-        <textarea id="f-concerns" placeholder="例：文章題が苦手、英語の読解に時間がかかる"></textarea>
-      </div>
+.tab-list {
+  display: flex;
+  gap: 2px;
+  flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
 
-      <div class="field">
-        <label for="f-notes">講師メモ（自由記述）</label>
-        <textarea id="f-notes" style="min-height: 80px;"
-          placeholder="例：計算は速いが見直しをしない癖がある。先週から元気がない様子。"></textarea>
-      </div>
+.tab-list::-webkit-scrollbar {
+  display: none;
+}
 
-      <div class="gen-btn-group">
-        <button class="gen-btn" id="gen-btn">
-          <i class="ti ti-sparkles"></i> AI診断レポートを生成する
-        </button>
-        <button class="next-lesson-btn" id="next-lesson-btn">
-          <i class="ti ti-calendar-event"></i> 次回授業案を生成
-        </button>
-        <button type="button" class="action-btn" id="save-log-btn">
-          <i class="ti ti-save"></i> 授業記録のみ保存する
-        </button>
-      </div>
+.tab-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: 'Noto Sans JP', sans-serif;
+  white-space: nowrap;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  position: relative;
+}
 
-    </section>
+.tab-item:hover {
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.06);
+}
 
-    <!-- 右パネル：診断結果 -->
-    <section class="panel" id="result-panel">
+.tab-item.active {
+  color: #fff;
+  border-bottom-color: #60a5fa;
+  background: rgba(255, 255, 255, 0.08);
+}
 
-      <!-- 初期状態 -->
-      <div class="state" id="state-empty">
-        <i class="ti ti-clipboard-text icon-lg"></i>
-        <p class="state-title">診断結果がここに表示されます</p>
-        <p class="state-sub">左のフォームに入力して「AI診断レポートを生成する」を押してください</p>
-      </div>
+.tab-item .ti-user-circle {
+  font-size: 15px;
+  opacity: 0.7;
+}
 
-      <!-- ローディング -->
-      <div class="state" id="state-loading" style="display: none;">
-        <div class="dots">
-          <span></span><span></span><span></span>
-        </div>
-        <p class="state-title">AIが分析中です...</p>
-        <p class="state-sub">しばらくお待ちください</p>
-      </div>
+.tab-item.active .ti-user-circle {
+  opacity: 1;
+  color: #93c5fd;
+}
 
-      <!-- エラー -->
-      <div id="state-error" style="display: none;"></div>
+.tab-label {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
-      <!-- 診断結果 -->
-      <div id="state-result" style="display: none;"></div>
+.tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 11px;
+  opacity: 0;
+  transition: all 0.15s;
+  padding: 0;
+  flex-shrink: 0;
+}
 
-      <!-- 横断サマリー -->
-      <div id="state-summary" style="display: none;"></div>
+.tab-item:hover .tab-close,
+.tab-item.active .tab-close {
+  opacity: 0.55;
+}
 
-    </section>
+.tab-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+  opacity: 1 !important;
+}
 
-  </main>
+.tab-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 12px;
+  margin: 6px 0;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 7px;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-size: 12px;
+  font-family: 'Noto Sans JP', sans-serif;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  align-self: center;
+}
 
-  <script src="js-tea.js"></script>
-</body>
-</html>
+.tab-add-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.tab-add-btn .ti {
+  font-size: 14px;
+}
+
+/* ===========================
+   メインレイアウト
+=========================== */
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 16px;
+  align-items: start;
+}
+
+/* ===========================
+   パネル（共通）
+=========================== */
+.panel {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 20px;
+  overflow-y: auto;
+  max-height: calc(100vh - 80px);
+}
+
+/* ===========================
+   フォーム
+=========================== */
+.sec-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #1b3a6b;
+  padding: 16px 0 8px;
+  border-top: 2px solid #e2e8f0;
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sec-title::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 14px;
+  background: #2563eb;
+  border-radius: 2px;
+}
+
+.sec-title:first-child {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.field {
+  margin-bottom: 12px;
+}
+
+.field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 6px;
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 13px;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 8px 11px;
+  transition: all 0.2s ease;
+  outline: none;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.field input:hover,
+.field select:hover,
+.field textarea:hover {
+  border-color: #94a3b8;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: #2563eb;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15), inset 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.field textarea {
+  resize: vertical;
+  min-height: 64px;
+  line-height: 1.6;
+}
+
+/* 科目チップ */
+.chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.chip {
+  padding: 5px 14px;
+  border-radius: 20px;
+  border: 1.5px solid #cbd5e1;
+  background: #ffffff;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: 'Noto Sans JP', sans-serif;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.chip:hover {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.chip.selected {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.25);
+}
+
+/* 10段階評価スケール */
+.scale-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.scale-group {
+  display: flex;
+  gap: 3px;
+  flex: 1;
+}
+
+.scale-btn {
+  flex: 1;
+  padding: 8px 0;
+  border-radius: 6px;
+  border: 1.5px solid #cbd5e1;
+  background: #ffffff;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'Noto Sans JP', sans-serif;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+  line-height: 1;
+}
+
+.scale-btn:hover {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.scale-btn.selected {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.25);
+}
+
+.scale-edge-label {
+  font-size: 10px;
+  color: #94a3b8;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* 生成ボタン */
+.gen-btn {
+  width: 100%;
+  margin-top: 20px;
+  padding: 13px 16px;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: 'Noto Sans JP', sans-serif;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+  transition: all 0.2s ease;
+}
+
+.gen-btn:hover {
+  background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+  transform: translateY(-1px);
+}
+
+.gen-btn:active {
+  transform: translateY(0);
+}
+
+.gen-btn:disabled {
+  background: #94a3b8;
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.gen-btn .ti {
+  font-size: 16px;
+}
+
+/* ===========================
+   右パネル：状態表示
+=========================== */
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  text-align: center;
+  gap: 10px;
+  color: #94a3b8;
+}
+
+.icon-lg {
+  font-size: 44px;
+}
+
+.state-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #64748b;
+}
+
+.state-sub {
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.6;
+}
+
+/* ローディングドット */
+.dots {
+  display: flex;
+  gap: 6px;
+}
+
+.dots span {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3b82f6;
+  animation: bounce 0.8s ease-in-out infinite;
+}
+
+.dots span:nth-child(2) { animation-delay: 0.15s; }
+.dots span:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes bounce {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50%       { opacity: 1;   transform: scale(1); }
+}
+
+/* ===========================
+   診断結果カード
+=========================== */
+.result-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+
+/* カラーバリアント */
+.card-hero        { background: #eff6ff; border-color: #bfdbfe; }
+.card-urgent      { background: #fffbeb; border-color: #fde68a; }
+.card-strengths   { background: #f0fdf4; border-color: #bbf7d0; }
+.card-improvements{ background: #fff1f2; border-color: #fecdd3; }
+.card-neutral     { background: #f8fafc; border-color: #e2e8f0; }
+.card-lesson      { background: #f0fdfa; border-color: #99f6e4; }
+
+.card-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.card-hero .card-label        { color: #1d4ed8; }
+.card-urgent .card-label      { color: #b45309; }
+.card-strengths .card-label   { color: #15803d; }
+.card-improvements .card-label{ color: #be123c; }
+.card-neutral .card-label     { color: #64748b; }
+.card-lesson .card-label      { color: #0f766e; }
+
+.card-body {
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.card-hero .card-body        { color: #1e40af; }
+.card-urgent .card-body      { color: #92400e; font-weight: 500; }
+.card-strengths .card-body   { color: #166534; }
+.card-improvements .card-body{ color: #9f1239; }
+.card-neutral .card-body     { color: #334155; }
+.card-lesson .card-body      { color: #134e4a; }
+
+/* ヒーローカード（総合評価） */
+.hero-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.hero-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e40af;
+}
+
+.hero-sub {
+  font-size: 12px;
+  color: #3b82f6;
+  margin-top: 2px;
+}
+
+.score-stars {
+  font-size: 20px;
+  letter-spacing: 1px;
+  text-align: right;
+}
+
+.score-label {
+  font-size: 11px;
+  color: #3b82f6;
+  margin-top: 2px;
+  text-align: right;
+}
+
+/* 2カラムグリッド（強み・改善点） */
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+/* リスト */
+.diag-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.diag-list li {
+  padding: 3px 0 3px 14px;
+  position: relative;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.diag-list li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+}
+
+.card-strengths .diag-list li    { color: #166534; }
+.card-improvements .diag-list li { color: #9f1239; }
+
+/* 保護者コメント */
+.parent-block {
+  background: #f1f5f9;
+  border-left: 3px solid #94a3b8;
+  border-radius: 0 6px 6px 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: #334155;
+  font-style: italic;
+  margin-top: 4px;
+}
+
+.copy-btn {
+  margin-top: 8px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-family: 'Noto Sans JP', sans-serif;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  color: #64748b;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background 0.15s;
+}
+
+.copy-btn:hover {
+  background: #f1f5f9;
+}
+
+/* エラー表示 */
+.error-box {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 10px;
+  padding: 14px 16px;
+  color: #be123c;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* ===========================
+   テスト結果エントリー
+=========================== */
+
+/* エントリーカード */
+.test-entry {
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  background: #f8fafc;
+  transition: all 0.2s ease;
+}
+
+.test-entry.is-open {
+  background: #ffffff;
+  border-color: #93c5fd;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+/* カードヘッダー */
+.test-entry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0 4px 4px;
+  border-bottom: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  border-radius: 6px;
+}
+
+.test-entry-header:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.test-entry.is-open .test-entry-header {
+  border-bottom-color: #e2e8f0;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-radius: 6px 6px 0 0;
+}
+
+.test-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.test-toggle-icon {
+  font-size: 16px;
+  color: #94a3b8;
+  transition: transform 0.2s ease;
+}
+.test-entry.is-open .test-toggle-icon {
+  transform: rotate(180deg);
+}
+
+.test-entry-num {
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.test-entry-num::before {
+  content: '';
+  display: inline-block;
+  width: 3px;
+  height: 13px;
+  background: #2563eb;
+  border-radius: 2px;
+}
+
+.test-preview {
+  font-size: 11px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 4px;
+}
+.test-entry.is-open .test-preview {
+  display: none;
+}
+
+.test-entry-content {
+  display: none;
+}
+.test-entry.is-open .test-entry-content {
+  display: block;
+}
+
+.test-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid #fecdd3;
+  background: #fff1f2;
+  color: #be123c;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s;
+  padding: 0;
+}
+
+.test-remove-btn:hover {
+  background: #fecdd3;
+  border-color: #fda4af;
+}
+
+.test-field {
+  margin-bottom: 8px;
+}
+
+.test-field:last-child {
+  margin-bottom: 0;
+}
+
+.test-field-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 5px;
+  letter-spacing: 0.02em;
+}
+
+.test-type-input,
+.test-grade-select,
+.test-date-input,
+.test-scores {
+  width: 100%;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 12px;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 6px 9px;
+  transition: all 0.2s ease;
+  outline: none;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.test-type-input:hover,
+.test-grade-select:hover,
+.test-date-input:hover,
+.test-scores:hover {
+  border-color: #94a3b8;
+}
+
+.test-type-input:focus,
+.test-grade-select:focus,
+.test-date-input:focus,
+.test-scores:focus {
+  border-color: #2563eb;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.test-scores {
+  resize: vertical;
+  min-height: 52px;
+  line-height: 1.65;
+}
+
+.test-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'Noto Sans JP', sans-serif;
+  border: 1.5px dashed #94a3b8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-top: 4px;
+}
+
+.test-add-btn:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+.test-add-btn .ti {
+  font-size: 14px;
+}
+
+/* ===========================
+   短期目標エントリー
+=========================== */
+.goal-entry {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    "num  text   remove"
+    ".    date   remove";
+  align-items: center;
+  gap: 5px 8px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  background: #f8fafc;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.goal-entry:focus-within {
+  background: #ffffff;
+  border-color: #93c5fd;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.goal-entry-num {
+  grid-area: num;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+  white-space: nowrap;
+}
+
+.goal-entry-num::before {
+  content: '';
+  display: inline-block;
+  width: 3px;
+  height: 13px;
+  background: #2563eb;
+  border-radius: 2px;
+}
+
+.goal-text-input {
+  grid-area: text;
+  width: 100%;
+  min-width: 0;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 12px;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 6px 9px;
+  outline: none;
+  transition: all 0.2s ease;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.goal-text-input:hover {
+  border-color: #94a3b8;
+}
+
+.goal-text-input:focus {
+  border-color: #2563eb;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.goal-deadline-input {
+  grid-area: date;
+  width: 100%;
+  max-width: 160px;
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 12px;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 6px 9px;
+  outline: none;
+  transition: all 0.2s ease;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.goal-deadline-input:hover {
+  border-color: #94a3b8;
+}
+
+.goal-deadline-input:focus {
+  border-color: #2563eb;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.goal-remove-btn {
+  grid-area: remove;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid #fecdd3;
+  background: #fff1f2;
+  color: #be123c;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s;
+  padding: 0;
+}
+
+.goal-remove-btn:hover {
+  background: #fecdd3;
+  border-color: #fda4af;
+}
+
+.goal-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'Noto Sans JP', sans-serif;
+  border: 1.5px dashed #94a3b8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-top: 4px;
+}
+
+.goal-add-btn:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+.goal-add-btn .ti {
+  font-size: 14px;
+}
+
+/* ===========================
+   レスポンシブ
+=========================== */
+@media (max-width: 768px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .panel {
+    max-height: none;
+  }
+
+  .header-right input {
+    width: 160px;
+  }
+
+  .two-col {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ===========================
+   ボタンフッター：Sticky固定 & 2ボタングループ
+=========================== */
+
+/* グループ全体を sticky 固定 */
+.gen-btn-group {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 14px;
+  margin-top: 12px;
+  background: #fff;
+}
+
+/* ボタン裏の文字が透けないよう白フェード（pointer-events:none でクリックを貫通させる） */
+.gen-btn-group::before {
+  content: '';
+  position: absolute;
+  top: -20px;
+  left: 0;
+  right: 0;
+  height: 20px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 1) 100%);
+  pointer-events: none;
+}
+
+/* 診断レポートボタン — hover / active / disabled */
+.gen-btn {
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+.gen-btn:hover {
+  background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+  transform: translateY(-1px);
+}
+
+.gen-btn:active {
+  transform: translateY(0);
+}
+
+.gen-btn:disabled {
+  background: #94a3b8;
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ===========================
+   次回授業案ボタン（ティール系）
+=========================== */
+.next-lesson-btn {
+  width: 100%;
+  padding: 11px 16px;
+  background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: 'Noto Sans JP', sans-serif;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.28);
+  transition: all 0.2s ease;
+}
+
+.next-lesson-btn:hover {
+  background: linear-gradient(135deg, #0f766e 0%, #115e59 100%);
+  box-shadow: 0 6px 16px rgba(13, 148, 136, 0.38);
+  transform: translateY(-1px);
+}
+
+.next-lesson-btn:active {
+  transform: translateY(0);
+}
+
+.next-lesson-btn:disabled {
+  background: #94a3b8;
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.next-lesson-btn .ti {
+  font-size: 15px;
+}
+
+/* ===========================
+   入力ラベルの必須/任意バッジ
+=========================== */
+.badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+
+/* 必須バッジ（赤系） */
+.badge-req {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+}
+
+/* 任意バッジ（グレー系） */
+.badge-opt {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+}
+
+/* ===========================
+   アクションボタン（画面表示用）
+=========================== */
+.result-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'Noto Sans JP', sans-serif;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.action-btn:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.action-btn-primary {
+  background: #1b3a6b;
+  border-color: #1b3a6b;
+  color: #ffffff;
+}
+
+.action-btn-primary:hover {
+  background: #14305a;
+  border-color: #14305a;
+  color: #ffffff;
+}
+
+.action-btn-teal {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #ffffff;
+}
+
+.action-btn-teal:hover {
+  background: #0d6b63;
+  border-color: #0d6b63;
+  color: #ffffff;
+}
+
+.action-btn-teal-outline {
+  border-color: #0d9488;
+  color: #0f766e;
+}
+
+.action-btn-teal-outline:hover {
+  background: #f0fdfa;
+  border-color: #0f766e;
+  color: #0d6b63;
+}
+
+/* ===========================
+   印刷専用スタイル (@media print)
+=========================== */
+@media print {
+  /* 1. 印刷に不要な要素をすべて非表示 */
+  .header,
+  .tab-bar,
+  #form-panel,
+  .no-print,
+  .gen-btn,
+  .gen-btn-group {
+    display: none !important;
+  }
+
+  /* 2. ページ全体のレイアウトを印刷用に解放 */
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 12pt;
+  }
+
+  .layout {
+    display: block !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .panel {
+    border: none !important;
+    padding: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: transparent !important;
+  }
+
+  #result-panel,
+  #state-result {
+    display: block !important;
+  }
+
+  /* 3. 印刷カード枠の調整と途切れ（改ページ）防止 */
+  .result-card {
+    border: 1px solid #cbd5e1 !important;
+    box-shadow: none !important;
+    break-inside: avoid; /* カードの途中で改ページされるのを防ぐ */
+    page-break-inside: avoid;
+    margin-bottom: 12px !important;
+    background: #ffffff !important;
+  }
+
+  /* カラーバリアント背景色の印刷維持（背景グラフィック印刷がONの場合） */
+  .card-hero        { background: #f0f7ff !important; border-color: #bfdbfe !important; }
+  .card-urgent      { background: #fffbeb !important; border-color: #fde68a !important; }
+  .card-strengths   { background: #f0fdf4 !important; border-color: #bbf7d0 !important; }
+  .card-improvements{ background: #fff1f2 !important; border-color: #fecdd3 !important; }
+
+  .parent-block {
+    background: #f8fafc !important;
+    border-left: 3px solid #64748b !important;
+  }
+}
+/* ===========================
+   Step 6: データ管理 UI
+=========================== */
+
+/* タブバーのアクショングループ */
+.tab-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 6px 0;
+}
+
+.tab-summary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 11px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 7px;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  font-size: 12px;
+  font-family: 'Noto Sans JP', sans-serif;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.tab-summary-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.38);
+}
+
+.data-mgmt-group {
+  display: flex;
+  gap: 4px;
+}
+
+.data-mgmt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 7px;
+  color: rgba(255, 255, 255, 0.65);
+  cursor: pointer;
+  font-size: 14px;
+  font-family: 'Noto Sans JP', sans-serif;
+  transition: all 0.15s;
+}
+
+.data-mgmt-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* ===========================
+   横断サマリーパネル
+=========================== */
+
+#state-summary {
+  padding: 2px 0;
+}
+
+.summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 14px;
+  border-bottom: 2px solid #e2e8f0;
+  margin-bottom: 14px;
+}
+
+.summary-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1b3a6b;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.summary-meta {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.summary-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.summary-kpi {
+  border-radius: 10px;
+  padding: 12px 14px;
+  text-align: center;
+  border: 1.5px solid transparent;
+}
+
+.kpi-ok      { background: #f0fdf4; border-color: #bbf7d0; }
+.kpi-danger  { background: #fff1f2; border-color: #fecdd3; }
+.kpi-warning { background: #fffbeb; border-color: #fde68a; }
+.kpi-neutral { background: #f0f4f8; border-color: #e2e8f0; }
+
+.kpi-num {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.kpi-ok .kpi-num      { color: #16a34a; }
+.kpi-danger .kpi-num  { color: #be123c; }
+.kpi-warning .kpi-num { color: #b45309; }
+.kpi-neutral .kpi-num { color: #1b3a6b; }
+
+.kpi-label {
+  font-size: 10px;
+  font-weight: 600;
+  margin-top: 3px;
+  letter-spacing: 0.02em;
+}
+
+.kpi-ok .kpi-label      { color: #15803d; }
+.kpi-danger .kpi-label  { color: #9f1239; }
+.kpi-warning .kpi-label { color: #92400e; }
+.kpi-neutral .kpi-label { color: #475569; }
+
+/* 生徒一覧テーブル */
+.summary-table-wrap {
+  overflow-x: auto;
+  margin-bottom: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.summary-table th {
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1.5px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.summary-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.summary-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.summary-table tbody tr:hover td {
+  background: #f8fafc;
+}
+
+/* フラグ行の背景色 */
+.row-danger td  { background: #fff8f8; }
+.row-warning td { background: #fffef5; }
+.row-danger:hover td  { background: #ffe4e6 !important; }
+.row-warning:hover td { background: #fef9c3 !important; }
+
+.student-name-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  color: #1b3a6b;
+}
+
+.comp-mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #4f46e5;
+}
+
+.summary-text-muted {
+  color: #9ca3af;
+}
+
+/* フラグバッジ */
+.flag-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 20px;
+  white-space: nowrap;
+  margin-right: 3px;
+}
+
+.flag-danger  { background: #fff1f2; color: #be123c; border: 1px solid #fecdd3; }
+.flag-warning { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+.flag-muted   { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
+
+/* サマリー下部アクション */
+.summary-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid #e2e8f0;
+  margin-bottom: 8px;
+}
+
+.summary-import-label {
+  cursor: pointer;
+}
+
+.summary-hint {
+  font-size: 11px;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ===========================
+   トースト通知
+=========================== */
+
+.data-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(12px);
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: 'Noto Sans JP', sans-serif;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  opacity: 0;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  z-index: 9999;
+  pointer-events: none;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  white-space: nowrap;
+}
+
+.data-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.data-toast-success { background: #1b3a6b; color: #fff; }
+.data-toast-error   { background: #be123c; color: #fff; }
+
+/* レスポンシブ調整 */
+@media (max-width: 768px) {
+  .tab-actions {
+    gap: 4px;
+  }
+
+  .tab-summary-btn span,
+  .tab-add-btn span {
+    display: none;
+  }
+
+  .summary-kpi-row {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+/* ===========================
+   基本情報フィールド ロック状態
+=========================== */
+
+/* ロックされたフィールドの入力要素 */
+.field-locked input,
+.field-locked select {
+  background: #f1f5f9 !important;
+  color: #94a3b8 !important;
+  border-color: #e2e8f0 !important;
+  cursor: default;
+  box-shadow: none !important;
+  pointer-events: none;
+}
+
+/* ロックされたフィールドのラベル */
+.field-locked > label {
+  color: #94a3b8;
+}
+
+/* ロックアイコンをラベルに付与 */
+.field-locked > label::after {
+  content: ' 🔒';
+  font-size: 10px;
+  vertical-align: middle;
+}
+
+/* 基本情報「変更」ボタン */
+.basic-info-unlock-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: 'Noto Sans JP', sans-serif;
+  background: transparent;
+  border: 1px solid #94a3b8;
+  border-radius: 5px;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s;
+  line-height: 1;
+}
+
+.basic-info-unlock-btn:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+  border-color: #64748b;
+}
+
+.basic-info-unlock-btn .ti {
+  font-size: 13px;
+}
+/* ===========================
+   ログ操作ボタン
+=========================== */
+.log-action-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.log-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #d1d5db);
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-muted, #6b7280);
+  transition: background 0.15s, color 0.15s;
+}
+.log-action-btn:hover {
+  background: var(--surface-hover, #f3f4f6);
+  color: var(--text, #111827);
+}
+.log-action-btn.delete-btn:hover {
+  background: #fee2e2;
+  color: #dc2626;
+  border-color: #fca5a5;
+}
+.log-view { }
+.log-edit-form {
+  display: none;
+  padding: 6px 0 2px;
+}
+.log-edit-field { margin-bottom: 8px; }
+.log-edit-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted, #6b7280);
+  margin-bottom: 2px;
+}
+.log-edit-input {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 12px;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: 6px;
+  background: var(--bg, #fff);
+  color: var(--text, #111827);
+  box-sizing: border-box;
+  resize: vertical;
+}
+.log-edit-input:focus {
+  outline: none;
+  border-color: var(--primary, #4f46e5);
+}
+.log-edit-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+.log-edit-save {
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: none;
+  background: var(--primary, #4f46e5);
+  color: #fff;
+  cursor: pointer;
+}
+.log-edit-cancel {
+  padding: 5px 14px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #d1d5db);
+  background: transparent;
+  color: var(--text-muted, #6b7280);
+  cursor: pointer;
+}
