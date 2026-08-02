@@ -92,6 +92,28 @@ function addAIDiagnostics(studentId, aiResult) {
   return data;
 }
 
+// 5. 授業ログを削除する関数
+function deleteLessonLog(studentId, logId) {
+  const data = getStudentData(studentId);
+  data.lessonLogs = data.lessonLogs.filter(l => l.logId !== logId);
+  saveStudentData(data);
+  return data;
+}
+
+// 6. 授業ログを更新する関数
+function updateLessonLog(studentId, logId, updatedFields) {
+  const data = getStudentData(studentId);
+  const idx  = data.lessonLogs.findIndex(l => l.logId === logId);
+  if (idx === -1) return data;
+  data.lessonLogs[idx] = {
+    ...data.lessonLogs[idx],   // logId などを保持
+    ...updatedFields,
+    comprehension: parseComprehension(updatedFields.comprehension),
+  };
+  saveStudentData(data);
+  return data;
+}
+
 /* ===========================
    使用モデル
    gemini-3.5-flash（無料枠あり）
@@ -260,7 +282,11 @@ function initStudents() {
           modeInitialized: typeof t.modeInitialized === 'boolean' ? t.modeInitialized : false,
         }));
         // studentCounter を復元した生徒数より大きい値に設定し、番号重複を防ぐ
-        studentCounter = students.length + 1;
+        const _maxNum = students.reduce((max, s) => {
+          const m = (s.defaultName || '').match(/生徒\s*(\d+)/);
+          return m ? Math.max(max, parseInt(m[1], 10)) : max;
+        }, 0);
+        studentCounter = _maxNum + 1;
         // currentIndex を復元（範囲外の場合は 0 にフォールバック）
         const savedIdx = parseInt(localStorage.getItem(STUDENTS_INDEX_KEY) || '0', 10);
         currentIndex = (Number.isFinite(savedIdx) && savedIdx >= 0 && savedIdx < students.length)
@@ -741,7 +767,8 @@ function renderHistoryView() {
     html += '<h3 class="history-section-title"><i class="ti ti-book"></i> 授業ログ</h3>';
     html += '<div class="accordion-list">';
     [...pastData.lessonLogs].reverse().forEach((log, idx) => {
-      const comp = parseComprehension(log.comprehension);
+      const comp  = parseComprehension(log.comprehension);
+      const logId = escapeHtml(log.logId || '');
       html += `
         <div class="accordion-item${idx === 0 ? ' is-open' : ''}">
           <div class="accordion-header">
@@ -750,19 +777,63 @@ function renderHistoryView() {
               <span class="history-date">${escapeHtml(log.date || '')}</span>
               ${log.subject ? `<span class="history-subject">${escapeHtml(log.subject)}</span>` : ''}
             </div>
-            ${comp ? `<span class="history-comp">理解度 ${comp}/10</span>` : ''}
+            <div class="log-action-row">
+              ${comp ? `<span class="history-comp">理解度 ${comp}/10</span>` : ''}
+              <button type="button" class="log-action-btn edit-log-btn" data-logid="${logId}">
+                <i class="ti ti-edit"></i> 編集
+              </button>
+              <button type="button" class="log-action-btn delete-btn delete-log-btn" data-logid="${logId}">
+                <i class="ti ti-trash"></i> 削除
+              </button>
+            </div>
           </div>
           <div class="accordion-body">
-            ${comp ? `
-              <div class="accordion-comp-row">
-                <span class="mini-bar"><span class="mini-bar-fill" style="width:${Math.round(comp / 10 * 100)}%"></span></span>
-                <span class="accordion-comp-num">${comp} / 10</span>
-              </div>` : ''}
+            <div class="log-view">
+              ${comp ? `
+                <div class="accordion-comp-row">
+                  <span class="mini-bar"><span class="mini-bar-fill" style="width:${Math.round(comp / 10 * 100)}%"></span></span>
+                  <span class="accordion-comp-num">${comp} / 10</span>
+                </div>` : ''}
               ${log.instructorNotes ? `<div class="accordion-field"><span class="accordion-field-label">講師メモ：</span>${escapeHtml(log.instructorNotes).replace(/\n/g, '<br>')}</div>` : ''}
               ${log.attitude        ? `<div class="accordion-field"><span class="accordion-field-label">学習態度：</span>${escapeHtml(log.attitude).replace(/\n/g, '<br>')}</div>` : ''}
               ${log.homeworkStatus  ? `<div class="accordion-field"><span class="accordion-field-label">宿題状況：</span>${escapeHtml(log.homeworkStatus).replace(/\n/g, '<br>')}</div>` : ''}
               ${log.unit            ? `<div class="accordion-field"><span class="accordion-field-label">単元/結果：</span>${escapeHtml(log.unit).replace(/\n/g, '<br>')}</div>` : ''}
+            </div>
+            <div class="log-edit-form">
+              <div class="log-edit-field">
+                <label class="log-edit-label">授業日</label>
+                <input type="date" class="log-edit-input" name="date" value="${escapeHtml(log.date || '')}">
               </div>
+              <div class="log-edit-field">
+                <label class="log-edit-label">担当科目</label>
+                <input type="text" class="log-edit-input" name="subject" value="${escapeHtml(log.subject || '')}">
+              </div>
+              <div class="log-edit-field">
+                <label class="log-edit-label">理解度（0〜10）</label>
+                <input type="number" class="log-edit-input" name="comprehension" min="0" max="10" value="${comp || 0}">
+              </div>
+              <div class="log-edit-field">
+                <label class="log-edit-label">学習態度</label>
+                <textarea class="log-edit-input" name="attitude" rows="2">${escapeHtml(log.attitude || '')}</textarea>
+              </div>
+              <div class="log-edit-field">
+                <label class="log-edit-label">講師メモ</label>
+                <textarea class="log-edit-input" name="instructorNotes" rows="3">${escapeHtml(log.instructorNotes || '')}</textarea>
+              </div>
+              <div class="log-edit-field">
+                <label class="log-edit-label">宿題状況</label>
+                <textarea class="log-edit-input" name="homeworkStatus" rows="2">${escapeHtml(log.homeworkStatus || '')}</textarea>
+              </div>
+              <div class="log-edit-field">
+                <label class="log-edit-label">単元/結果</label>
+                <textarea class="log-edit-input" name="unit" rows="2">${escapeHtml(log.unit || '')}</textarea>
+              </div>
+              <div class="log-edit-actions">
+                <button type="button" class="log-edit-cancel cancel-edit-btn">キャンセル</button>
+                <button type="button" class="log-edit-save save-edit-btn" data-logid="${logId}">保存する</button>
+              </div>
+            </div>
+          </div>
         </div>
       `;
     });
@@ -797,10 +868,70 @@ function renderHistoryView() {
 
   historySec.innerHTML = html;
 
-  // アコーディオン開閉イベントを登録
+  const studentId = 'std_' + students[currentIndex].id;
+
+  // アコーディオン開閉（ログ操作ボタンのクリックは除外）
   historySec.querySelectorAll('.accordion-header').forEach(header => {
-    header.addEventListener('click', () => {
+    header.addEventListener('click', (e) => {
+      if (e.target.closest('.log-action-btn')) return;
       header.closest('.accordion-item').classList.toggle('is-open');
+    });
+  });
+
+  // ── 削除ボタン ──
+  historySec.querySelectorAll('.delete-log-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const logId = btn.dataset.logid;
+      if (!logId) return;
+      if (confirm('この授業ログを削除しますか？')) {
+        deleteLessonLog(studentId, logId);
+        renderHistoryView();
+      }
+    });
+  });
+
+  // ── 編集ボタン ──
+  historySec.querySelectorAll('.edit-log-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const item = btn.closest('.accordion-item');
+      if (!item) return;
+      item.classList.add('is-open');
+      item.querySelector('.log-view').style.display      = 'none';
+      item.querySelector('.log-edit-form').style.display = 'block';
+    });
+  });
+
+  // ── キャンセルボタン ──
+  historySec.querySelectorAll('.cancel-edit-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const item = btn.closest('.accordion-item');
+      item.querySelector('.log-view').style.display      = '';
+      item.querySelector('.log-edit-form').style.display = 'none';
+    });
+  });
+
+  // ── 保存ボタン ──
+  historySec.querySelectorAll('.save-edit-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const logId = btn.dataset.logid;
+      const form  = btn.closest('.log-edit-form');
+      if (!form || !logId) return;
+      const updatedFields = {
+        date:            form.querySelector('[name="date"]').value,
+        subject:         form.querySelector('[name="subject"]').value,
+        comprehension:   form.querySelector('[name="comprehension"]').value,
+        attitude:        form.querySelector('[name="attitude"]').value,
+        instructorNotes: form.querySelector('[name="instructorNotes"]').value,
+        homeworkStatus:  form.querySelector('[name="homeworkStatus"]').value,
+        unit:            form.querySelector('[name="unit"]').value,
+      };
+      updateLessonLog(studentId, logId, updatedFields);
+      showToast('授業ログを更新しました ✓');
+      renderHistoryView();
     });
   });
 
@@ -1055,6 +1186,12 @@ function removeStudent(idx) {
   const removedKey = `student_data_std_${students[idx].id}`;
   localStorage.removeItem(removedKey);
   students.splice(idx, 1);
+  // 残存する最大番号+1 に studentCounter をリセット
+  const _maxNum = students.reduce((max, s) => {
+    const m = (s.defaultName || '').match(/生徒\s*(\d+)/);
+    return m ? Math.max(max, parseInt(m[1], 10)) : max;
+  }, 0);
+  studentCounter = _maxNum + 1;
   if (idx < currentIndex || currentIndex >= students.length) {
     currentIndex = Math.max(0, currentIndex - 1);
   }
