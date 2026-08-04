@@ -1054,14 +1054,13 @@ body {
 }
 
 /* ===========================
-   ボタンフッター：Sticky固定 & 2ボタングループ
+   ボタンフッター：自然配置（Sticky廃止）
 =========================== */
 
-/* グループ全体を sticky 固定 */
+/* スティッキー固定を廃止し、フォームパネル下端に自然配置
+   （position:sticky + z-index:10 がフォームボタンへのポインターイベントを
+     横取りしていたバグを修正） */
 .gen-btn-group {
-  position: sticky;
-  bottom: 0;
-  z-index: 10;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1070,39 +1069,6 @@ body {
   background: #fff;
 }
 
-/* ボタン裏の文字が透けないよう白フェード（pointer-events:none でクリックを貫通させる） */
-.gen-btn-group::before {
-  content: '';
-  position: absolute;
-  top: -20px;
-  left: 0;
-  right: 0;
-  height: 20px;
-  background: linear-gradient(to bottom, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 1) 100%);
-  pointer-events: none;
-}
-
-/* 診断レポートボタン — hover / active / disabled */
-.gen-btn {
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-}
-
-.gen-btn:hover {
-  background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
-  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
-  transform: translateY(-1px);
-}
-
-.gen-btn:active {
-  transform: translateY(0);
-}
-
-.gen-btn:disabled {
-  background: #94a3b8;
-  box-shadow: none;
-  cursor: not-allowed;
-  transform: none;
-}
 
 /* ===========================
    次回授業案ボタン（ティール系）
