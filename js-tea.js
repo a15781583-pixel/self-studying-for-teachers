@@ -1226,37 +1226,9 @@ function updateScaleUI(val) {
   });
 }
 
-document.querySelectorAll('#comp-scale .scale-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const val = btn.dataset.val;
-    document.getElementById('f-comp').value = val;
-    updateScaleUI(val);
-  });
-});
 
 const selectedSubjects = new Set();
-document.querySelectorAll('#subjects .chip').forEach(chip => {
-  chip.addEventListener('click', () => {
-    const val = chip.dataset.val;
-    if (selectedSubjects.has(val)) {
-      selectedSubjects.delete(val);
-      chip.classList.remove('selected');
-    } else {
-      selectedSubjects.add(val);
-      chip.classList.add('selected');
-    }
-  });
-});
 
-document.getElementById('f-name')?.addEventListener('input', e => {
-  const name = e.target.value.trim();
-  students[currentIndex].tabName = name || students[currentIndex].defaultName;
-  const labels = document.querySelectorAll('#tab-list .tab-label');
-  if (labels[currentIndex]) {
-    labels[currentIndex].textContent = students[currentIndex].tabName;
-  }
-  saveStudentsTabs(); // タブ名（生徒名）の変更を即時永続化
-});
 
 function getVal(id) {
   const el = document.getElementById(id);
@@ -1446,22 +1418,6 @@ function renumberTestEntries() {
   });
 }
 
-// テスト追加ボタンの処理
-document.getElementById('test-add-btn')?.addEventListener('click', () => {
-  const list = document.getElementById('test-list');
-  
-  list.querySelectorAll('.test-entry').forEach(entry => {
-    entry.classList.remove('is-open');
-  });
-
-  const newIdx = list.querySelectorAll('.test-entry').length;
-  list.appendChild(createTestEntryElement(createTestEntry(), newIdx));
-  
-  const panel = document.getElementById('form-panel');
-  setTimeout(() => {
-    panel.scrollTo({ top: panel.scrollHeight, behavior: 'smooth' });
-  }, 50);
-});
 
 
 /* ===========================
@@ -1532,311 +1488,9 @@ function renumberGoalEntries() {
   });
 }
 
-// 短期目標追加ボタンの処理
-document.getElementById('goal-add-btn')?.addEventListener('click', () => {
-  const list   = document.getElementById('short-goal-list');
-  const newIdx = list.querySelectorAll('.goal-entry').length;
-  list.appendChild(createGoalEntryElement(createShortTermGoalEntry(), newIdx));
-
-  const panel = document.getElementById('form-panel');
-  setTimeout(() => {
-    panel.scrollTo({ top: panel.scrollHeight, behavior: 'smooth' });
-  }, 50);
-});
-
-/* ===========================
-   AI診断レポートを生成する（日付選択 ＆ 構造化出力で100%安定化）
-=========================== */
-document.getElementById('gen-btn').addEventListener('click', async () => {
-  const apiKey = document.getElementById('api-key')?.value.trim();
-  if (!apiKey) {
-    showInlineError(
-      'APIキーを入力してください。<br>' +
-      '<small><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="color:inherit;">Google AI Studio で無料取得できます →</a></small>'
-    );
-    return;
-  }
-
-  const btn = document.getElementById('gen-btn');
-  btn.disabled = true;
-  btn.innerHTML = '<i class="ti ti-loader-2"></i> AIが分析中...';
-  setLoadingText('AIが分析中です...', 'しばらくお待ちください');
-  showState('state-loading');
-
-  const formData = buildFormData();
-  const lessonDate = getVal('lesson-date') || new Date().toISOString().split('T')[0]; 
-  const studentId  = 'std_' + students[currentIndex].id;
-  
-  const pastData     = getStudentData(studentId);
-  const previousLogs = pastData ? pastData.lessonLogs.slice(-10) : [];
-  const lastDiag     = (pastData && pastData.aiDiagnostics.length > 0)
-    ? pastData.aiDiagnostics[pastData.aiDiagnostics.length - 1]
-    : null;
-
-  // 理解度の傾向を数値計算（全ログの前半平均 vs 後半平均で比較）
-  const compValues = (pastData ? pastData.lessonLogs : [])
-    .map(l => parseComprehension(l.comprehension))
-    .filter(v => v > 0);
-  let compTrendText = '記録なし';
-  if (compValues.length >= 2) {
-    const half   = Math.ceil(compValues.length / 2);
-    const avgOld = (compValues.slice(0, half).reduce((a, b) => a + b, 0) / half).toFixed(1);
-    const avgNew = (compValues.slice(-half).reduce((a, b) => a + b, 0) / half).toFixed(1);
-    const diff   = (Number(avgNew) - Number(avgOld)).toFixed(1);
-    const arrow  = Number(diff) > 0.5 ? '上昇傾向↑' : Number(diff) < -0.5 ? '低下傾向↓' : '横ばい→';
-    compTrendText = `${arrow}（前半平均 ${avgOld} → 後半平均 ${avgNew}、変化 ${Number(diff) >= 0 ? '+' : ''}${diff}、全${compValues.length}件）`;
-  }
-
-  // AI診断スコアの前回比
-  const scoreDiffText = (pastData && pastData.aiDiagnostics.length > 1 && lastDiag)
-    ? (() => {
-        const prev = pastData.aiDiagnostics[pastData.aiDiagnostics.length - 2];
-        const currentScore = Number(lastDiag.overallScore) || 0;
-        const prevScore = Number(prev?.overallScore) || 0;
-        const d = currentScore - prevScore;
-        return `${d >= 0 ? '+' : ''}${d}（前回 ${prevScore} → 直近 ${currentScore}）`;
-      })()
-    : '初回診断のため比較なし';
-
-  const prompt = `
-あなたはプロの教育コンサルタント・塾講師です。
-生徒の基本情報、過去の学習変化、今回の授業内容を踏まえ、保護者も納得する高品質な診断レポートを作成してください。
-
-【生徒情報】
-名前: ${formData.name}
-学年: ${formData.grade}
-担当科目: ${formData.subjects}
-【目標】
-長期目標: ${formData.goal}
-短期目標:
-${formData.shortTermGoals}
-現在の課題: ${formData.concerns}
-
-【学習傾向分析（数値）】
-理解度の傾向: ${compTrendText}
-AI診断スコアの変化: ${scoreDiffText}
-
-【前回のAI診断結果】
-${lastDiag ? `前回の総合スコア: ${lastDiag.overallScore} / 5\n前回の所見: ${lastDiag.overallComment}` : '過去のAI診断履歴はありません（初回診断）'}
-
-【直近の指導経過（最大10件）】
-${previousLogs.length > 0 ? previousLogs.map((log, index) => `
-${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehension(log.comprehension)}/10
-   所見: ${log.instructorNotes}
-`).join('') : '過去の授業ログはありません'}
-
-【今回の授業レポート (${lessonDate})】
-理解度（10段階）: ${formData.comp}
-テスト・単元結果: ${formData.scores}
-学習態度・自習状況: ${formData.attitude}
-講師メモ: ${formData.notes}
-
-【指示】
-- 学習傾向分析の数値（理解度の傾向・スコア変化）を必ず言及し、変化を具体的に評価してください。
-- 過去のデータと比較し、「成長できた点」「継続して取り組む課題」を具体的に述べてください。
-- 複数の科目が含まれる場合は、全体をぼやかさず「【英語】〇〇」「【数学】〇〇」のように科目ごとに明確に見出しをつけて具体的に診断してください。
-- 次回授業プランは今回の課題を踏まえ、科目ごとに単元名・教材名・つまずきやすい箇所を明記してください。
-- 保護者向けメッセージは丁寧で前向き、そのまま面談や連絡帳で渡せるクオリティにしてください。
-- 短期目標の達成状況・進捗を具体的に評価し、「今すぐ取り組むべきこと」に反映してください。
-- 週間プラン・月間プランは、科目ごとのバランスを考慮し、短期目標の達成ステップと長期目標への道筋を構成してください。
-`.trim();
-
-  try {
-    // 共通関数を呼び出す（最大3回まで自動で再試行してくれます）
-    const data = await fetchGeminiWithRetry(apiKey, {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 8192,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: "OBJECT",
-          properties: {
-            overallScore: { type: "INTEGER", minimum: 1, maximum: 5 },
-            overallComment: { type: "STRING" },
-            strengths: { type: "ARRAY", items: { type: "STRING" } },
-            improvements: { type: "ARRAY", items: { type: "STRING" } },
-            weeklyPlan: { type: "STRING" },
-            monthlyPlan: { type: "STRING" },
-            nextLessonPlan: {
-              type: "OBJECT",
-              properties: {
-                objective: { type: "STRING" },
-                keyPoints: { type: "ARRAY", items: { type: "STRING" } },
-                materials: { type: "STRING" },
-                pitfalls:  { type: "ARRAY", items: { type: "STRING" } }
-              },
-              required: ["objective", "keyPoints", "materials", "pitfalls"]
-            },
-            instructorAdvice: { type: "STRING" },
-            parentMessage: { type: "STRING" },
-            urgentAction: { type: "STRING" }
-          },
-          required: [
-            "overallScore", "overallComment", "strengths", "improvements",
-            "weeklyPlan", "monthlyPlan", "nextLessonPlan",
-            "instructorAdvice", "parentMessage", "urgentAction"
-          ]
-        }
-      }
-    });
-
-    // トークン上限でJSONが途中で切れた場合を検出
-    const finishReason = data.candidates?.[0]?.finishReason;
-    if (finishReason === 'MAX_TOKENS') {
-      throw new Error('レスポンスがトークン上限に達しました。入力情報を減らすか、しばらく時間をおいて再試行してください。');
-    }
-
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!rawText) {
-      throw new Error('AIからのレスポンスを取得できませんでした。');
-    }
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('有効なJSONデータが検出されませんでした。');
-    }
-    const result = JSON.parse(jsonMatch[0]);
-    // API通信成功後に授業ログと診断結果を保存する
-    addLessonLog(studentId, {
-      date: lessonDate,
-      subject: formData.subjects,
-      unit: formData.scores,
-      comprehension: formData.comp,
-      attitude: formData.attitude,
-      instructorNotes: formData.notes
-    });
-
-    addAIDiagnostics(studentId, result);
-
-    students[currentIndex].result         = result;
-    students[currentIndex].lastResultType = 'diagnosis';
-    renderResult(result, formData);
-    showState('state-result');
-
-  } catch (err) {
-    showInlineError(
-      '診断の生成に失敗しました。APIキーとネットワーク接続を確認してください。<br>' +
-      `<small>${escapeHtml(err.message)}</small>`
-    );
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<i class="ti ti-sparkles"></i> AI診断レポートを生成する';
-  }
-});
 
 
-/* ===========================
-   Step 5: 次回授業案を生成する（軽量プロンプト / maxOutputTokens:800）
-=========================== */
-document.getElementById('next-lesson-btn').addEventListener('click', async () => {
-  const apiKey = document.getElementById('api-key')?.value.trim();
-  if (!apiKey) {
-    showInlineError(
-      'APIキーを入力してください。<br>' +
-      '<small><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="color:inherit;">Google AI Studio で無料取得できます →</a></small>'
-    );
-    return;
-  }
 
-  const btn = document.getElementById('next-lesson-btn');
-  btn.disabled = true;
-  btn.innerHTML = '<i class="ti ti-loader-2"></i> 授業案を作成中...';
-  setLoadingText('次回授業案を作成中...', 'しばらくお待ちください');
-  showState('state-loading');
-
-  const formData   = buildFormData();
-  const lessonDate = getVal('lesson-date') || new Date().toISOString().split('T')[0];
-  const studentId  = 'std_' + students[currentIndex].id;
-  const pastData   = getStudentData(studentId);
-  const recentLogs = pastData ? pastData.lessonLogs.slice(-5) : [];
-
-  const prompt = `
-あなたはベテラン塾講師です。
-以下の授業履歴と今回の指導記録をもとに、次回授業の具体的な指導案を作成してください。
-総合診断・保護者向けコメント・月間計画は不要です。授業計画のみに特化して回答してください。
-
-【生徒情報】
-名前: ${formData.name}
-学年: ${formData.grade}
-担当科目: ${formData.subjects}
-【目標】
-長期目標: ${formData.goal}
-短期目標:
-${formData.shortTermGoals}
-現在の課題: ${formData.concerns}
-
-【直近の授業履歴（最大5件）】
-${recentLogs.length > 0
-  ? recentLogs.map((log, i) =>
-      `${i + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehension(log.comprehension)}/10\n   メモ: ${log.instructorNotes}`
-    ).join('\n')
-  : '過去の授業ログはありません'}
-
-【今回の授業（${lessonDate}）】
-理解度（10段階）: ${formData.comp}
-テスト・単元結果: ${formData.scores}
-学習態度: ${formData.attitude}
-講師メモ: ${formData.notes}
-
-【指示】
-- 今回の理解度・課題を踏まえ、次回の授業目標を1文で端的に示してください。
-- 複数の科目が含まれる場合は、重点指導ポイント、教材、宿題、つまずきやすい箇所を「【英語】〇〇」「【数学】〇〇」のように科目別に分けて明確に記載してください。
-- 重点指導ポイントは科目ごとに具体的に単元名・問題タイプを挙げてください。
-- 使用する教材・参考書・ページ数を具体的に記載してください。
-- 生徒がつまずきやすい箇所と講師がとるべき対処法を明記してください。
-- 次回授業前に出す宿題・自習課題を具体的に提示してください。
-- 指導のヒントとして、この生徒への効果的なアプローチを1〜2文で示してください。
-- 短期目標の期限が近い場合は、その達成を最優先した集中指導プランを示してください。
-`.trim();
-
-  try {
-    // 共通関数を呼び出す（最大3回まで自動で再試行してくれます）
-    const data = await fetchGeminiWithRetry(apiKey, {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 2048,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'OBJECT',
-          properties: {
-            objective:    { type: 'STRING' },
-            keyPoints:    { type: 'ARRAY', items: { type: 'STRING' } },
-            materials:    { type: 'STRING' },
-            pitfalls:     { type: 'ARRAY', items: { type: 'STRING' } },
-            homework:     { type: 'STRING' },
-            teachingTips: { type: 'STRING' }
-          },
-          required: ['objective', 'keyPoints', 'materials', 'pitfalls', 'homework', 'teachingTips']
-        }
-      }
-    });
-
-    // トークン上限でJSONが途中で切れた場合を検出
-    const finishReason2 = data.candidates?.[0]?.finishReason;
-    if (finishReason2 === 'MAX_TOKENS') {
-      throw new Error('レスポンスがトークン上限に達しました。入力情報を減らすか、しばらく時間をおいて再試行してください。');
-    }
-
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const clean   = rawText.replace(/```json|```/g, '').trim();
-    const result  = JSON.parse(clean);
-
-    students[currentIndex].lessonPlanResult = result;
-    students[currentIndex].lastResultType   = 'lessonplan';
-    renderLessonPlanResult(result, formData);
-    showState('state-result');
-
-  } catch (err) {
-    showInlineError(
-      '次回授業案の生成に失敗しました。APIキーとネットワーク接続を確認してください。<br>' +
-      `<small>${escapeHtml(err.message)}</small>`
-    );
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<i class="ti ti-calendar-event"></i> 次回授業案を生成';
-  }
-});
 
 
 /* ===========================
@@ -2467,85 +2121,451 @@ function injectSaveLogButton() {
 }
 
 /* ===========================
-   初期化（イベントバインド）
+   初期化（DOMContentLoaded）
+   — DOM構築完了後に全イベントバインドを実行
 =========================== */
-document.getElementById('tab-add-btn')?.addEventListener('click', addStudent);
+document.addEventListener('DOMContentLoaded', () => {
 
-// Step 6: データ管理
-document.getElementById('tab-summary-btn')?.addEventListener('click', renderSummaryPanel);
-document.getElementById('tab-export-btn')?.addEventListener('click', exportAllData);
-document.getElementById('tab-import-btn')?.addEventListener('click', () => {
-  document.getElementById('import-file-input')?.click();
-});
-document.getElementById('import-file-input')?.addEventListener('change', e => {
-  if (e.target.files[0]) importData(e.target.files[0]);
-  e.target.value = '';
-});
+  // ── 理解度スケールボタン ──
+  document.querySelectorAll('#comp-scale .scale-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const val = btn.dataset.val;
+      document.getElementById('f-comp').value = val;
+      updateScaleUI(val);
+    });
+  });
 
-// 基本情報「変更」ボタン: 生徒名・学年のロックを一時解除する
-document.getElementById('basic-info-unlock-btn')?.addEventListener('click', () => {
-  const nameInput   = document.getElementById('f-name');
-  const gradeSelect = document.getElementById('f-grade');
-  const unlockBtn   = document.getElementById('basic-info-unlock-btn');
+  // ── 担当科目チップ ──
+  document.querySelectorAll('#subjects .chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const val = chip.dataset.val;
+      if (selectedSubjects.has(val)) {
+        selectedSubjects.delete(val);
+        chip.classList.remove('selected');
+      } else {
+        selectedSubjects.add(val);
+        chip.classList.add('selected');
+      }
+    });
+  });
 
-  if (nameInput) {
-    nameInput.disabled = false;
-    nameInput.closest('.field')?.classList.remove('field-locked');
-    nameInput.focus();
-  }
-  if (gradeSelect) {
-    gradeSelect.disabled = false;
-    gradeSelect.closest('.field')?.classList.remove('field-locked');
-  }
-  if (unlockBtn) {
-    unlockBtn.style.display = 'none';
-  }
-});
+  // ── 生徒名入力 → タブ名同期 ──
+  document.getElementById('f-name')?.addEventListener('input', e => {
+    const name = e.target.value.trim();
+    students[currentIndex].tabName = name || students[currentIndex].defaultName;
+    const labels = document.querySelectorAll('#tab-list .tab-label');
+    if (labels[currentIndex]) {
+      labels[currentIndex].textContent = students[currentIndex].tabName;
+    }
+    saveStudentsTabs(); // タブ名（生徒名）の変更を即時永続化
+  });
 
-injectSubNavStyles();
-renderSubNav();
-initSections();
-initStudents(); // localStorage からタブ一覧・基本情報を復元（ページリロード対策）
-renderTabs();
-restoreForm(students[currentIndex]);
-injectSaveLogButton();
+  // ── テスト追加ボタン ──
+  // テスト追加ボタンの処理
+  document.getElementById('test-add-btn')?.addEventListener('click', () => {
+    const list = document.getElementById('test-list');
+  
+    list.querySelectorAll('.test-entry').forEach(entry => {
+      entry.classList.remove('is-open');
+    });
 
-/* ===========================
-   5. APIキーの永続化
-   - ページ読み込み時に localStorage から自動復元
-   - 入力変更のたびに localStorage へ保存（空の場合は削除）
-=========================== */
-(function initApiKeyPersistence() {
-  const apiKeyEl = document.getElementById('api-key');
-  if (!apiKeyEl) return;
+    const newIdx = list.querySelectorAll('.test-entry').length;
+    list.appendChild(createTestEntryElement(createTestEntry(), newIdx));
+  
+    const panel = document.getElementById('form-panel');
+    setTimeout(() => {
+      panel.scrollTo({ top: panel.scrollHeight, behavior: 'smooth' });
+    }, 50);
+  });
 
-  // 復元
-  const saved = localStorage.getItem('gemini_api_key');
-  if (saved) apiKeyEl.value = saved;
+  // ── 短期目標追加ボタン ──
+  // 短期目標追加ボタンの処理
+  document.getElementById('goal-add-btn')?.addEventListener('click', () => {
+    const list   = document.getElementById('short-goal-list');
+    const newIdx = list.querySelectorAll('.goal-entry').length;
+    list.appendChild(createGoalEntryElement(createShortTermGoalEntry(), newIdx));
 
-  // 自動保存
-  apiKeyEl.addEventListener('input', () => {
-    const val = apiKeyEl.value.trim();
-    if (val) {
-      localStorage.setItem('gemini_api_key', val);
-    } else {
-      localStorage.removeItem('gemini_api_key');
+    const panel = document.getElementById('form-panel');
+    setTimeout(() => {
+      panel.scrollTo({ top: panel.scrollHeight, behavior: 'smooth' });
+    }, 50);
+  });
+
+  /* ===========================
+     AI診断レポートを生成する（日付選択 ＆ 構造化出力で100%安定化）
+  =========================== */
+  /* ===========================
+     AI診断レポートを生成する（日付選択 ＆ 構造化出力で100%安定化）
+  =========================== */
+  document.getElementById('gen-btn')?.addEventListener('click', async () => {
+    const apiKey = document.getElementById('api-key')?.value.trim();
+    if (!apiKey) {
+      showInlineError(
+        'APIキーを入力してください。<br>' +
+        '<small><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="color:inherit;">Google AI Studio で無料取得できます →</a></small>'
+      );
+      return;
+    }
+
+    const btn = document.getElementById('gen-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ti ti-loader-2"></i> AIが分析中...';
+    setLoadingText('AIが分析中です...', 'しばらくお待ちください');
+    showState('state-loading');
+
+    const formData = buildFormData();
+    const lessonDate = getVal('lesson-date') || new Date().toISOString().split('T')[0]; 
+    const studentId  = 'std_' + students[currentIndex].id;
+  
+    const pastData     = getStudentData(studentId);
+    const previousLogs = pastData ? pastData.lessonLogs.slice(-10) : [];
+    const lastDiag     = (pastData && pastData.aiDiagnostics.length > 0)
+      ? pastData.aiDiagnostics[pastData.aiDiagnostics.length - 1]
+      : null;
+
+    // 理解度の傾向を数値計算（全ログの前半平均 vs 後半平均で比較）
+    const compValues = (pastData ? pastData.lessonLogs : [])
+      .map(l => parseComprehension(l.comprehension))
+      .filter(v => v > 0);
+    let compTrendText = '記録なし';
+    if (compValues.length >= 2) {
+      const half   = Math.ceil(compValues.length / 2);
+      const avgOld = (compValues.slice(0, half).reduce((a, b) => a + b, 0) / half).toFixed(1);
+      const avgNew = (compValues.slice(-half).reduce((a, b) => a + b, 0) / half).toFixed(1);
+      const diff   = (Number(avgNew) - Number(avgOld)).toFixed(1);
+      const arrow  = Number(diff) > 0.5 ? '上昇傾向↑' : Number(diff) < -0.5 ? '低下傾向↓' : '横ばい→';
+      compTrendText = `${arrow}（前半平均 ${avgOld} → 後半平均 ${avgNew}、変化 ${Number(diff) >= 0 ? '+' : ''}${diff}、全${compValues.length}件）`;
+    }
+
+    // AI診断スコアの前回比
+    const scoreDiffText = (pastData && pastData.aiDiagnostics.length > 1 && lastDiag)
+      ? (() => {
+          const prev = pastData.aiDiagnostics[pastData.aiDiagnostics.length - 2];
+          const currentScore = Number(lastDiag.overallScore) || 0;
+          const prevScore = Number(prev?.overallScore) || 0;
+          const d = currentScore - prevScore;
+          return `${d >= 0 ? '+' : ''}${d}（前回 ${prevScore} → 直近 ${currentScore}）`;
+        })()
+      : '初回診断のため比較なし';
+
+    const prompt = `
+  あなたはプロの教育コンサルタント・塾講師です。
+  生徒の基本情報、過去の学習変化、今回の授業内容を踏まえ、保護者も納得する高品質な診断レポートを作成してください。
+
+  【生徒情報】
+  名前: ${formData.name}
+  学年: ${formData.grade}
+  担当科目: ${formData.subjects}
+  【目標】
+  長期目標: ${formData.goal}
+  短期目標:
+  ${formData.shortTermGoals}
+  現在の課題: ${formData.concerns}
+
+  【学習傾向分析（数値）】
+  理解度の傾向: ${compTrendText}
+  AI診断スコアの変化: ${scoreDiffText}
+
+  【前回のAI診断結果】
+  ${lastDiag ? `前回の総合スコア: ${lastDiag.overallScore} / 5\n前回の所見: ${lastDiag.overallComment}` : '過去のAI診断履歴はありません（初回診断）'}
+
+  【直近の指導経過（最大10件）】
+  ${previousLogs.length > 0 ? previousLogs.map((log, index) => `
+  ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehension(log.comprehension)}/10
+     所見: ${log.instructorNotes}
+  `).join('') : '過去の授業ログはありません'}
+
+  【今回の授業レポート (${lessonDate})】
+  理解度（10段階）: ${formData.comp}
+  テスト・単元結果: ${formData.scores}
+  学習態度・自習状況: ${formData.attitude}
+  講師メモ: ${formData.notes}
+
+  【指示】
+  - 学習傾向分析の数値（理解度の傾向・スコア変化）を必ず言及し、変化を具体的に評価してください。
+  - 過去のデータと比較し、「成長できた点」「継続して取り組む課題」を具体的に述べてください。
+  - 複数の科目が含まれる場合は、全体をぼやかさず「【英語】〇〇」「【数学】〇〇」のように科目ごとに明確に見出しをつけて具体的に診断してください。
+  - 次回授業プランは今回の課題を踏まえ、科目ごとに単元名・教材名・つまずきやすい箇所を明記してください。
+  - 保護者向けメッセージは丁寧で前向き、そのまま面談や連絡帳で渡せるクオリティにしてください。
+  - 短期目標の達成状況・進捗を具体的に評価し、「今すぐ取り組むべきこと」に反映してください。
+  - 週間プラン・月間プランは、科目ごとのバランスを考慮し、短期目標の達成ステップと長期目標への道筋を構成してください。
+  `.trim();
+
+    try {
+      // 共通関数を呼び出す（最大3回まで自動で再試行してくれます）
+      const data = await fetchGeminiWithRetry(apiKey, {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: 8192,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: "OBJECT",
+            properties: {
+              overallScore: { type: "INTEGER", minimum: 1, maximum: 5 },
+              overallComment: { type: "STRING" },
+              strengths: { type: "ARRAY", items: { type: "STRING" } },
+              improvements: { type: "ARRAY", items: { type: "STRING" } },
+              weeklyPlan: { type: "STRING" },
+              monthlyPlan: { type: "STRING" },
+              nextLessonPlan: {
+                type: "OBJECT",
+                properties: {
+                  objective: { type: "STRING" },
+                  keyPoints: { type: "ARRAY", items: { type: "STRING" } },
+                  materials: { type: "STRING" },
+                  pitfalls:  { type: "ARRAY", items: { type: "STRING" } }
+                },
+                required: ["objective", "keyPoints", "materials", "pitfalls"]
+              },
+              instructorAdvice: { type: "STRING" },
+              parentMessage: { type: "STRING" },
+              urgentAction: { type: "STRING" }
+            },
+            required: [
+              "overallScore", "overallComment", "strengths", "improvements",
+              "weeklyPlan", "monthlyPlan", "nextLessonPlan",
+              "instructorAdvice", "parentMessage", "urgentAction"
+            ]
+          }
+        }
+      });
+
+      // トークン上限でJSONが途中で切れた場合を検出
+      const finishReason = data.candidates?.[0]?.finishReason;
+      if (finishReason === 'MAX_TOKENS') {
+        throw new Error('レスポンスがトークン上限に達しました。入力情報を減らすか、しばらく時間をおいて再試行してください。');
+      }
+
+      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!rawText) {
+        throw new Error('AIからのレスポンスを取得できませんでした。');
+      }
+      const result = JSON.parse(rawText);
+      // API通信成功後に授業ログと診断結果を保存する
+      addLessonLog(studentId, {
+        date: lessonDate,
+        subject: formData.subjects,
+        unit: formData.scores,
+        comprehension: formData.comp,
+        attitude: formData.attitude,
+        instructorNotes: formData.notes
+      });
+
+      addAIDiagnostics(studentId, result);
+
+      students[currentIndex].result         = result;
+      students[currentIndex].lastResultType = 'diagnosis';
+      renderResult(result, formData);
+      showState('state-result');
+
+    } catch (err) {
+      showInlineError(
+        '診断の生成に失敗しました。APIキーとネットワーク接続を確認してください。<br>' +
+        `<small>${escapeHtml(err.message)}</small>`
+      );
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ti ti-sparkles"></i> AI診断レポートを生成する';
     }
   });
-})();
 
-/* ===========================
-   6. 理解度グラフのリサイズ対応
-   - ウィンドウ幅が変わったとき、グラフが表示中であれば再描画する
-   - デバウンス 150ms でパフォーマンスを確保
-=========================== */
-window.addEventListener('resize', () => {
-  clearTimeout(_chartResizeTimer);
-  _chartResizeTimer = setTimeout(() => {
-    const canvas = document.getElementById('comp-chart');
-    // Canvasが表示されている（幅を持っている）場合のみ再描画する
-    if (canvas && canvas.offsetWidth > 0 && _chartLogs) {
-      drawComprehensionChart(_chartLogs);
+  /* ===========================
+     Step 5: 次回授業案を生成する（軽量プロンプト / maxOutputTokens:800）
+  =========================== */
+  /* ===========================
+     Step 5: 次回授業案を生成する（軽量プロンプト / maxOutputTokens:800）
+  =========================== */
+  document.getElementById('next-lesson-btn')?.addEventListener('click', async () => {
+    const apiKey = document.getElementById('api-key')?.value.trim();
+    if (!apiKey) {
+      showInlineError(
+        'APIキーを入力してください。<br>' +
+        '<small><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="color:inherit;">Google AI Studio で無料取得できます →</a></small>'
+      );
+      return;
     }
-  }, 150);
-});
+
+    const btn = document.getElementById('next-lesson-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ti ti-loader-2"></i> 授業案を作成中...';
+    setLoadingText('次回授業案を作成中...', 'しばらくお待ちください');
+    showState('state-loading');
+
+    const formData   = buildFormData();
+    const lessonDate = getVal('lesson-date') || new Date().toISOString().split('T')[0];
+    const studentId  = 'std_' + students[currentIndex].id;
+    const pastData   = getStudentData(studentId);
+    const recentLogs = pastData ? pastData.lessonLogs.slice(-5) : [];
+
+    const prompt = `
+  あなたはベテラン塾講師です。
+  以下の授業履歴と今回の指導記録をもとに、次回授業の具体的な指導案を作成してください。
+  総合診断・保護者向けコメント・月間計画は不要です。授業計画のみに特化して回答してください。
+
+  【生徒情報】
+  名前: ${formData.name}
+  学年: ${formData.grade}
+  担当科目: ${formData.subjects}
+  【目標】
+  長期目標: ${formData.goal}
+  短期目標:
+  ${formData.shortTermGoals}
+  現在の課題: ${formData.concerns}
+
+  【直近の授業履歴（最大5件）】
+  ${recentLogs.length > 0
+    ? recentLogs.map((log, i) =>
+        `${i + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehension(log.comprehension)}/10\n   メモ: ${log.instructorNotes}`
+      ).join('\n')
+    : '過去の授業ログはありません'}
+
+  【今回の授業（${lessonDate}）】
+  理解度（10段階）: ${formData.comp}
+  テスト・単元結果: ${formData.scores}
+  学習態度: ${formData.attitude}
+  講師メモ: ${formData.notes}
+
+  【指示】
+  - 今回の理解度・課題を踏まえ、次回の授業目標を1文で端的に示してください。
+  - 複数の科目が含まれる場合は、重点指導ポイント、教材、宿題、つまずきやすい箇所を「【英語】〇〇」「【数学】〇〇」のように科目別に分けて明確に記載してください。
+  - 重点指導ポイントは科目ごとに具体的に単元名・問題タイプを挙げてください。
+  - 使用する教材・参考書・ページ数を具体的に記載してください。
+  - 生徒がつまずきやすい箇所と講師がとるべき対処法を明記してください。
+  - 次回授業前に出す宿題・自習課題を具体的に提示してください。
+  - 指導のヒントとして、この生徒への効果的なアプローチを1〜2文で示してください。
+  - 短期目標の期限が近い場合は、その達成を最優先した集中指導プランを示してください。
+  `.trim();
+
+    try {
+      // 共通関数を呼び出す（最大3回まで自動で再試行してくれます）
+      const data = await fetchGeminiWithRetry(apiKey, {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: 2048,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: {
+              objective:    { type: 'STRING' },
+              keyPoints:    { type: 'ARRAY', items: { type: 'STRING' } },
+              materials:    { type: 'STRING' },
+              pitfalls:     { type: 'ARRAY', items: { type: 'STRING' } },
+              homework:     { type: 'STRING' },
+              teachingTips: { type: 'STRING' }
+            },
+            required: ['objective', 'keyPoints', 'materials', 'pitfalls', 'homework', 'teachingTips']
+          }
+        }
+      });
+
+      // トークン上限でJSONが途中で切れた場合を検出
+      const finishReason2 = data.candidates?.[0]?.finishReason;
+      if (finishReason2 === 'MAX_TOKENS') {
+        throw new Error('レスポンスがトークン上限に達しました。入力情報を減らすか、しばらく時間をおいて再試行してください。');
+      }
+
+      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const result  = JSON.parse(rawText);
+
+      students[currentIndex].lessonPlanResult = result;
+      students[currentIndex].lastResultType   = 'lessonplan';
+      renderLessonPlanResult(result, formData);
+      showState('state-result');
+
+    } catch (err) {
+      showInlineError(
+        '次回授業案の生成に失敗しました。APIキーとネットワーク接続を確認してください。<br>' +
+        `<small>${escapeHtml(err.message)}</small>`
+      );
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ti ti-calendar-event"></i> 次回授業案を生成';
+    }
+  });
+
+  /* ===========================
+     タブ・データ管理ボタン
+  =========================== */
+  document.getElementById('tab-add-btn')?.addEventListener('click', addStudent);
+
+  document.getElementById('tab-summary-btn')?.addEventListener('click', renderSummaryPanel);
+  document.getElementById('tab-export-btn')?.addEventListener('click', exportAllData);
+  document.getElementById('tab-import-btn')?.addEventListener('click', () => {
+    document.getElementById('import-file-input')?.click();
+  });
+  document.getElementById('import-file-input')?.addEventListener('change', e => {
+    if (e.target.files[0]) importData(e.target.files[0]);
+    e.target.value = '';
+  });
+
+  // 基本情報「変更」ボタン: 生徒名・学年のロックを一時解除する
+  document.getElementById('basic-info-unlock-btn')?.addEventListener('click', () => {
+    const nameInput   = document.getElementById('f-name');
+    const gradeSelect = document.getElementById('f-grade');
+    const unlockBtn   = document.getElementById('basic-info-unlock-btn');
+
+    if (nameInput) {
+      nameInput.disabled = false;
+      nameInput.closest('.field')?.classList.remove('field-locked');
+      nameInput.focus();
+    }
+    if (gradeSelect) {
+      gradeSelect.disabled = false;
+      gradeSelect.closest('.field')?.classList.remove('field-locked');
+    }
+    if (unlockBtn) {
+      unlockBtn.style.display = 'none';
+    }
+  });
+
+  injectSubNavStyles();
+  renderSubNav();
+  initSections();
+  initStudents(); // localStorage からタブ一覧・基本情報を復元（ページリロード対策）
+  renderTabs();
+  restoreForm(students[currentIndex]);
+  injectSaveLogButton();
+
+  /* ===========================
+     APIキーの永続化
+     - ページ読み込み時に localStorage から自動復元
+     - 入力変更のたびに localStorage へ保存（空の場合は削除）
+  =========================== */
+  (function initApiKeyPersistence() {
+    const apiKeyEl = document.getElementById('api-key');
+    if (!apiKeyEl) return;
+
+    // 復元
+    const saved = localStorage.getItem('gemini_api_key');
+    if (saved) apiKeyEl.value = saved;
+
+    // 自動保存
+    apiKeyEl.addEventListener('input', () => {
+      const val = apiKeyEl.value.trim();
+      if (val) {
+        localStorage.setItem('gemini_api_key', val);
+      } else {
+        localStorage.removeItem('gemini_api_key');
+      }
+    });
+  })();
+
+  /* ===========================
+     理解度グラフのリサイズ対応
+     - ウィンドウ幅が変わったとき、グラフが表示中であれば再描画する
+     - デバウンス 150ms でパフォーマンスを確保
+  =========================== */
+  window.addEventListener('resize', () => {
+    clearTimeout(_chartResizeTimer);
+    _chartResizeTimer = setTimeout(() => {
+      const canvas = document.getElementById('comp-chart');
+      // Canvasが表示されている（幅を持っている）場合のみ再描画する
+      if (canvas && canvas.offsetWidth > 0 && _chartLogs) {
+        drawComprehensionChart(_chartLogs);
+      }
+    }, 150);
+  });
+
+}); // end DOMContentLoaded
