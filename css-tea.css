@@ -118,13 +118,14 @@ body {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   padding: 0 16px 0 12px;
   gap: 8px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .tab-list {
   display: flex;
   gap: 2px;
   flex: 1;
+  min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -256,7 +257,7 @@ body {
   border-radius: 12px;
   padding: 20px;
   overflow-y: auto;
-  max-height: calc(100vh - 80px);
+  max-height: calc(100vh - 140px);
 }
 
 /* ===========================
