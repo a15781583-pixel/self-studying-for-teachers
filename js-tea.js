@@ -1277,7 +1277,8 @@ function buildFormData() {
 
 function showState(id) {
   ['state-empty', 'state-loading', 'state-error', 'state-result', 'state-summary'].forEach(s => {
-    document.getElementById(s).style.display = (s === id) ? '' : 'none';
+    const el = document.getElementById(s);
+    if (el) el.style.display = (s === id) ? '' : 'none';
   });
 }
 
@@ -2211,7 +2212,6 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.disabled = true;
     btn.innerHTML = '<i class="ti ti-loader-2"></i> AIが分析中...';
     setLoadingText('AIが分析中です...', 'しばらくお待ちください');
-    showState('state-loading');
 
     const formData = buildFormData();
     const lessonDate = getVal('lesson-date') || new Date().toISOString().split('T')[0]; 
@@ -2292,6 +2292,7 @@ document.addEventListener('DOMContentLoaded', () => {
   `.trim();
 
     try {
+      showState('state-loading');
       // 共通関数を呼び出す（最大3回まで自動で再試行してくれます）
       const data = await fetchGeminiWithRetry(apiKey, {
         contents: [{ parts: [{ text: prompt }] }],
@@ -2390,7 +2391,6 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.disabled = true;
     btn.innerHTML = '<i class="ti ti-loader-2"></i> 授業案を作成中...';
     setLoadingText('次回授業案を作成中...', 'しばらくお待ちください');
-    showState('state-loading');
 
     const formData   = buildFormData();
     const lessonDate = getVal('lesson-date') || new Date().toISOString().split('T')[0];
@@ -2438,6 +2438,7 @@ document.addEventListener('DOMContentLoaded', () => {
   `.trim();
 
     try {
+      showState('state-loading');
       // 共通関数を呼び出す（最大3回まで自動で再試行してくれます）
       const data = await fetchGeminiWithRetry(apiKey, {
         contents: [{ parts: [{ text: prompt }] }],
