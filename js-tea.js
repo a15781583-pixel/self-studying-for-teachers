@@ -868,8 +868,6 @@ function renderHistoryView() {
 
   historySec.innerHTML = html;
 
-  const studentId = 'std_' + students[currentIndex].id;
-
   // アコーディオン開閉（ログ操作ボタンのクリックは除外）
   historySec.querySelectorAll('.accordion-header').forEach(header => {
     header.addEventListener('click', (e) => {
