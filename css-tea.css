@@ -8,6 +8,17 @@
   padding: 0;
 }
 
+button {
+  -webkit-appearance: none;
+  appearance: none;
+  font-family: 'Noto Sans JP', sans-serif; /* または inherit */
+  font-size: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  padding: 0;
+}
+
 body {
   font-family: 'Noto Sans JP', sans-serif;
   font-size: 14px;
