@@ -92,17 +92,23 @@
             <option>高校1年</option>
             <option>高校2年</option>
             <option>高校3年</option>
+            <option>高卒・既卒</option>
           </optgroup>
         </select>
       </div>
 
-            <!-- HTMLのフォーム内に追加してください -->
       <div class="field">
+        <label for="f-goal">長期目標（志望校・検定など）</label>
+        <input type="text" id="f-goal" placeholder="例：○○高校合格、英検3級取得">
+      </div>
+
+            <!-- HTMLのフォーム内に追加してください -->
+      <div class="field" data-section="report">
         <label for="lesson-date">授業日</label>
         <input type="date" id="lesson-date" style="max-width: 180px;">
       </div>
       
-      <div class="field">
+      <div class="field" data-section="report">
         <label>担当科目（複数選択可）</label>
         <div class="chip-group" id="subjects">
           <button class="chip" data-val="国語">国語</button>
@@ -114,10 +120,10 @@
         </div>
       </div>
 
-      <h2 class="sec-title">学習状況</h2>
+      <h2 class="sec-title" data-section="report">学習状況</h2>
 
       <!-- テスト結果セクション -->
-      <div class="field">
+      <div class="field" data-section="report">
         <label>テスト結果</label>
         <div id="test-list">
           <!-- JS が動的に生成 -->
@@ -127,7 +133,7 @@
         </button>
       </div>
 
-      <div class="field">
+      <div class="field" data-section="report">
         <label>授業の理解度（10段階）</label>
         <div class="scale-row">
           <span class="scale-edge-label">理解不足</span>
@@ -148,22 +154,17 @@
         <input type="hidden" id="f-comp" value="">
       </div>
 
-      <h2 class="sec-title">学習態度・習慣</h2>
+      <h2 class="sec-title" data-section="report">学習態度・習慣</h2>
 
-      <div class="field">
+      <div class="field" data-section="report">
         <label for="f-attitude">学習態度・自習状況（講師所見）</label>
         <textarea id="f-attitude" style="min-height: 80px;"
           placeholder="例：授業中の集中力は高いが家での自習が少ない。週2〜3回は自習に来ている。積極的に質問するようになってきた。"></textarea>
       </div>
 
-      <h2 class="sec-title">目標・課題・メモ</h2>
+      <h2 class="sec-title" data-section="report">目標・課題・メモ</h2>
 
-      <div class="field">
-        <label for="f-goal">長期目標（志望校・検定など）</label>
-        <input type="text" id="f-goal" placeholder="例：○○高校合格、英検3級取得">
-      </div>
-
-      <div class="field">
+      <div class="field" data-section="report">
         <label>短期目標（複数設定可）</label>
         <div id="short-goal-list"></div>
         <button type="button" class="goal-add-btn" id="goal-add-btn">
@@ -171,18 +172,18 @@
         </button>
       </div>
 
-      <div class="field">
+      <div class="field" data-section="report">
         <label for="f-concerns">現在の課題・悩み</label>
         <textarea id="f-concerns" placeholder="例：文章題が苦手、英語の読解に時間がかかる"></textarea>
       </div>
 
-      <div class="field">
+      <div class="field" data-section="report">
         <label for="f-notes">講師メモ（自由記述）</label>
         <textarea id="f-notes" style="min-height: 80px;"
           placeholder="例：計算は速いが見直しをしない癖がある。先週から元気がない様子。"></textarea>
       </div>
 
-      <div class="gen-btn-group">
+      <div class="gen-btn-group" data-section="report">
         <button class="gen-btn" id="gen-btn">
           <i class="ti ti-sparkles"></i> AI診断レポートを生成する
         </button>
