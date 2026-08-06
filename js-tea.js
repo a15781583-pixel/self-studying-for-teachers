@@ -651,11 +651,16 @@ function showModeSection(mode) {
 
   [...panel.children].forEach(child => {
     if (child.id === 'sub-nav') return;
+
     if (child.id === 'section-history') {
       child.style.display = (mode === 'history') ? '' : 'none';
+    } else if (mode === 'history') {
+      child.style.display = 'none';
+    } else if (mode === 'profile' && child.dataset.section === 'report') {
+      // 基本情報タブでは report 専用要素を非表示
+      child.style.display = 'none';
     } else {
-      // profile / report どちらのモードでも全フォーム要素を表示する
-      child.style.display = (mode === 'history') ? 'none' : '';
+      child.style.display = '';
     }
   });
 
