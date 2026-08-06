@@ -199,7 +199,8 @@ let _chartLogs = null;
 /** リサイズタイマーID（デバウンス用） */
 let _chartResizeTimer = null;
 
-let _editingLogId = null;
+let _editingLogId  = null;
+let _editingLog    = null;  // バグ②修正: 編集中ログオブジェクトを保持し unit を引き継ぐ
 
 let studentCounter = 1;
 let currentIndex   = 0;
@@ -697,11 +698,63 @@ function updateBasicInfoLock(s) {
 
 /** サブナビボタン押下時: フォームを保存してモードを切り替える */
 function switchMode(mode) {
-  if (mode !== 'report') _editingLogId = null;
+  if (mode !== 'report') { _editingLogId = null; _editingLog = null; }
   saveCurrentForm();
   students[currentIndex].mode = mode;
   updateSubNavActive(mode);
   showModeSection(mode);
+}
+
+/**
+ * log.unit のテキスト表現（buildFormData() が生成するフォーマット）を
+ * テストエントリーの配列 { type, grade, date, scores }[] に変換する。
+ * 復元できない場合は空エントリー1件を返す。
+ *
+ * 想定フォーマット（buildFormData の scoresText）:
+ *   [定期テスト / 対象: 高2 / 実施日: 2024-06-01]
+ *   数学 75点、英語 80点
+ *
+ *   [全統記述模試]
+ *   英語 偏差値 55.2
+ */
+function parseUnitToTestEntries(unitText) {
+  if (!unitText || unitText === '未入力') {
+    return [createTestEntry()];
+  }
+
+  // buildFormData が join('\n\n') したブロック単位で分割する
+  const blocks  = unitText.split(/\n\n+/);
+  const entries = blocks.map(block => {
+    const trimmed = block.trim();
+    if (!trimmed) return null;
+
+    const lines     = trimmed.split('\n');
+    const firstLine = lines[0] || '';
+
+    // ヘッダー行 "[type / 対象: grade / 実施日: date]" をパース
+    const headerMatch = firstLine.match(/^\[(.+)\]$/);
+    let type = '', grade = '', date = '';
+
+    if (headerMatch) {
+      headerMatch[1].split('/').map(p => p.trim()).forEach(part => {
+        if (part.startsWith('対象:')) {
+          grade = part.slice(3).trim();
+        } else if (part.startsWith('実施日:')) {
+          date = part.slice(4).trim();
+        } else if (!type && !/^テスト\d+$/.test(part)) {
+          // "テスト1" 等のフォールバックラベルは type として扱わない
+          type = part;
+        }
+      });
+      const scores = lines.slice(1).join('\n').trim();
+      return { type, grade, date, scores };
+    }
+
+    // ヘッダーなし → ブロック全体を scores として扱う
+    return { type: '', grade: '', date: '', scores: trimmed };
+  }).filter(Boolean);
+
+  return entries.length > 0 ? entries : [createTestEntry()];
 }
 
 function loadLogIntoReportForm(log) {
@@ -731,6 +784,11 @@ function loadLogIntoReportForm(log) {
   // 講師メモ
   const notesEl = document.getElementById('f-notes');
   if (notesEl) notesEl.value = log.instructorNotes || '';
+
+  // テスト・単元結果を復元（バグ修正①）
+  // log.unit は保存時に buildFormData().scores として記録されたテキスト。
+  // parseUnitToTestEntries でテストエントリー配列に変換してから renderTestList で描画する。
+  renderTestList(parseUnitToTestEntries(log.unit));
 }
 
 /** 履歴セクションに localStorage の過去データを描画する */
@@ -836,40 +894,7 @@ function renderHistoryView() {
               ${log.homeworkStatus  ? `<div class="accordion-field"><span class="accordion-field-label">宿題状況：</span>${escapeHtml(log.homeworkStatus).replace(/\n/g, '<br>')}</div>` : ''}
               ${log.unit            ? `<div class="accordion-field"><span class="accordion-field-label">単元/結果：</span>${escapeHtml(log.unit).replace(/\n/g, '<br>')}</div>` : ''}
             </div>
-            <div class="log-edit-form">
-              <div class="log-edit-field">
-                <label class="log-edit-label">授業日</label>
-                <input type="date" class="log-edit-input" name="date" value="${escapeHtml(log.date || '')}">
-              </div>
-              <div class="log-edit-field">
-                <label class="log-edit-label">担当科目</label>
-                <input type="text" class="log-edit-input" name="subject" value="${escapeHtml(log.subject || '')}">
-              </div>
-              <div class="log-edit-field">
-                <label class="log-edit-label">理解度（0〜10）</label>
-                <input type="number" class="log-edit-input" name="comprehension" min="0" max="10" value="${comp || 0}">
-              </div>
-              <div class="log-edit-field">
-                <label class="log-edit-label">学習態度</label>
-                <textarea class="log-edit-input" name="attitude" rows="2">${escapeHtml(log.attitude || '')}</textarea>
-              </div>
-              <div class="log-edit-field">
-                <label class="log-edit-label">講師メモ</label>
-                <textarea class="log-edit-input" name="instructorNotes" rows="3">${escapeHtml(log.instructorNotes || '')}</textarea>
-              </div>
-              <div class="log-edit-field">
-                <label class="log-edit-label">宿題状況</label>
-                <textarea class="log-edit-input" name="homeworkStatus" rows="2">${escapeHtml(log.homeworkStatus || '')}</textarea>
-              </div>
-              <div class="log-edit-field">
-                <label class="log-edit-label">単元/結果</label>
-                <textarea class="log-edit-input" name="unit" rows="2">${escapeHtml(log.unit || '')}</textarea>
-              </div>
-              <div class="log-edit-actions">
-                <button type="button" class="log-edit-cancel cancel-edit-btn">キャンセル</button>
-                <button type="button" class="log-edit-save save-edit-btn" data-logid="${logId}">保存する</button>
-              </div>
-            </div>
+
           </div>
         </div>
       `;
@@ -934,47 +959,17 @@ function renderHistoryView() {
       const log = pastData.lessonLogs.find(l => l.logId === logId);
       if (!log) return;
 
-      // 編集対象ログIDを記憶し、フォームへ値をセットして授業記録タブへ遷移
+      // 編集対象ログIDを記憶し、授業記録タブへ遷移してからフォームへ値をセット
+      // ※ switchMode を先に呼ぶことで saveCurrentForm() が実行される時点では
+      //   DOM にはまだログ値が入っておらず、プロフィールデータの汚染を防ぐ（バグ④修正）
       _editingLogId = logId;
-      loadLogIntoReportForm(log);
+      _editingLog   = log;   // バグ②修正: unit引き継ぎ用にログオブジェクトを保持
       switchMode('report');
+      loadLogIntoReportForm(log);
       showToast('授業記録を編集中です。修正後に「授業記録のみ保存する」を押してください。');
     });
   });
 
-
-
-  // ── キャンセルボタン ──
-  historySec.querySelectorAll('.cancel-edit-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const item = btn.closest('.accordion-item');
-      item.querySelector('.log-view').style.display      = '';
-      item.querySelector('.log-edit-form').style.display = 'none';
-    });
-  });
-
-  // ── 保存ボタン ──
-  historySec.querySelectorAll('.save-edit-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const logId = btn.dataset.logid;
-      const form  = btn.closest('.log-edit-form');
-      if (!form || !logId) return;
-      const updatedFields = {
-        date:            form.querySelector('[name="date"]').value,
-        subject:         form.querySelector('[name="subject"]').value,
-        comprehension:   form.querySelector('[name="comprehension"]').value,
-        attitude:        form.querySelector('[name="attitude"]').value,
-        instructorNotes: form.querySelector('[name="instructorNotes"]').value,
-        homeworkStatus:  form.querySelector('[name="homeworkStatus"]').value,
-        unit:            form.querySelector('[name="unit"]').value,
-      };
-      updateLessonLog(studentId, logId, updatedFields);
-      showToast('授業ログを更新しました ✓');
-      renderHistoryView();
-    });
-  });
 
   // Canvas グラフ描画
   if (logsWithComp.length > 0) {
@@ -2148,12 +2143,13 @@ function injectSaveLogButton() {
       updateLessonLog(studentId, _editingLogId, {
         date:            lessonDate,
         subject:         formData.subjects,
-        unit:            formData.scores,
+        unit:            _editingLog ? _editingLog.unit : formData.scores,  // バグ②修正: 元ログの unit をそのまま引き継ぐ
         comprehension:   formData.comp,
         attitude:        formData.attitude,
         instructorNotes: formData.notes
       });
       _editingLogId = null;
+      _editingLog   = null;
       showToast('授業記録を更新しました ✓');
     } else {
       // 新規ログの追加
