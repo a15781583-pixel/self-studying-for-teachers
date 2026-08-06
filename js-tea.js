@@ -846,7 +846,7 @@ function renderHistoryView() {
 
   // ② 理解度推移グラフ（Canvas）
   const logsWithComp = pastData.lessonLogs.filter(l =>
-    l.comprehension != null && l.comprehension !== '' && l.comprehension !== '未入力'
+    parseComprehension(l.comprehension) > 0
   );
   if (logsWithComp.length > 0) {
     html += `
@@ -1137,7 +1137,6 @@ function restoreForm(s) {
 
   // モード自動判別（生徒タブ初回表示時のみ実行）
   if (!s.modeInitialized) {
-    const name = (s.data['f-name'] || '').trim();
     s.mode = detectMode('std_' + s.id);
     s.modeInitialized = true;
   }
@@ -1969,7 +1968,7 @@ function renderSummaryPanel() {
     const lastLog  = logs.length > 0 ? logs[logs.length - 1] : null;
     const lastDate = lastLog ? lastLog.date : null;
     const daysAgo  = lastDate
-      ? Math.floor((TODAY - new Date(lastDate)) / 86400000)
+      ? Math.floor((TODAY - new Date(lastDate + 'T00:00:00')) / 86400000)
       : null;
 
     // フラグ判定
@@ -2143,7 +2142,7 @@ function injectSaveLogButton() {
       updateLessonLog(studentId, _editingLogId, {
         date:            lessonDate,
         subject:         formData.subjects,
-        unit:            _editingLog ? _editingLog.unit : formData.scores,  // バグ②修正: 元ログの unit をそのまま引き継ぐ
+        unit:            formData.scores,
         comprehension:   formData.comp,
         attitude:        formData.attitude,
         instructorNotes: formData.notes
@@ -2261,7 +2260,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setLoadingText('AIが分析中です...', 'しばらくお待ちください');
 
     const formData = buildFormData();
-    const lessonDate = getVal('lesson-date') || new Date().toISOString().split('T')[0]; 
+    const lessonDate = getVal('lesson-date') || getLocalDate(); 
     const studentId  = 'std_' + students[currentIndex].id;
   
     const pastData     = getStudentData(studentId);
@@ -2440,7 +2439,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setLoadingText('次回授業案を作成中...', 'しばらくお待ちください');
 
     const formData   = buildFormData();
-    const lessonDate = getVal('lesson-date') || new Date().toISOString().split('T')[0];
+    const lessonDate = getVal('lesson-date') || getLocalDate();
     const studentId  = 'std_' + students[currentIndex].id;
     const pastData   = getStudentData(studentId);
     const recentLogs = pastData ? pastData.lessonLogs.slice(-5) : [];
