@@ -199,6 +199,8 @@ let _chartLogs = null;
 /** リサイズタイマーID（デバウンス用） */
 let _chartResizeTimer = null;
 
+let _editingLogId = null;
+
 let studentCounter = 1;
 let currentIndex   = 0;
 let students       = [];
@@ -695,10 +697,40 @@ function updateBasicInfoLock(s) {
 
 /** サブナビボタン押下時: フォームを保存してモードを切り替える */
 function switchMode(mode) {
+  if (mode !== 'report') _editingLogId = null;
   saveCurrentForm();
   students[currentIndex].mode = mode;
   updateSubNavActive(mode);
   showModeSection(mode);
+}
+
+function loadLogIntoReportForm(log) {
+  // 授業日
+  const dateEl = document.getElementById('lesson-date');
+  if (dateEl) dateEl.value = log.date || '';
+
+  // 担当科目チップ
+  selectedSubjects.clear();
+  (log.subject || '').split(/[、,，]/).map(s => s.trim()).filter(Boolean)
+    .forEach(v => selectedSubjects.add(v));
+  document.querySelectorAll('#subjects .chip').forEach(chip => {
+    chip.classList.toggle('selected', selectedSubjects.has(chip.dataset.val));
+  });
+
+  // 理解度スケール
+  const comp = parseComprehension(log.comprehension);
+  const compVal = comp ? String(comp) : '';
+  const compEl = document.getElementById('f-comp');
+  if (compEl) compEl.value = compVal;
+  updateScaleUI(compVal);
+
+  // 学習態度
+  const attitudeEl = document.getElementById('f-attitude');
+  if (attitudeEl) attitudeEl.value = log.attitude || '';
+
+  // 講師メモ
+  const notesEl = document.getElementById('f-notes');
+  if (notesEl) notesEl.value = log.instructorNotes || '';
 }
 
 /** 履歴セクションに localStorage の過去データを描画する */
@@ -893,18 +925,24 @@ function renderHistoryView() {
       }
     });
   });
-
   // ── 編集ボタン ──
   historySec.querySelectorAll('.edit-log-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const item = btn.closest('.accordion-item');
-      if (!item) return;
-      item.classList.add('is-open');
-      item.querySelector('.log-view').style.display      = 'none';
-      item.querySelector('.log-edit-form').style.display = 'block';
+      const logId = btn.dataset.logid;
+      if (!logId) return;
+      const log = pastData.lessonLogs.find(l => l.logId === logId);
+      if (!log) return;
+
+      // 編集対象ログIDを記憶し、フォームへ値をセットして授業記録タブへ遷移
+      _editingLogId = logId;
+      loadLogIntoReportForm(log);
+      switchMode('report');
+      showToast('授業記録を編集中です。修正後に「授業記録のみ保存する」を押してください。');
     });
   });
+
+
 
   // ── キャンセルボタン ──
   historySec.querySelectorAll('.cancel-edit-btn').forEach(btn => {
@@ -2098,7 +2136,6 @@ function injectSaveLogButton() {
     const formData   = buildFormData();
     const lessonDate = getVal('lesson-date') || getLocalDate();
 
-    // 生徒名が未入力の場合はバリデーションエラー
     if (!formData.name || formData.name === '未入力') {
       showToast('生徒名を入力してください', 'error');
       return;
@@ -2106,20 +2143,31 @@ function injectSaveLogButton() {
 
     const studentId = 'std_' + students[currentIndex].id;
 
-    // 既存の関数を使って授業ログを localStorage に保存
-    addLessonLog(studentId, {
-      date:            lessonDate,
-      subject:         formData.subjects,
-      unit:            formData.scores,
-      comprehension:   formData.comp,
-      attitude:        formData.attitude,
-      instructorNotes: formData.notes
-    });
+    if (_editingLogId) {
+      // 既存ログの更新
+      updateLessonLog(studentId, _editingLogId, {
+        date:            lessonDate,
+        subject:         formData.subjects,
+        unit:            formData.scores,
+        comprehension:   formData.comp,
+        attitude:        formData.attitude,
+        instructorNotes: formData.notes
+      });
+      _editingLogId = null;
+      showToast('授業記録を更新しました ✓');
+    } else {
+      // 新規ログの追加
+      addLessonLog(studentId, {
+        date:            lessonDate,
+        subject:         formData.subjects,
+        unit:            formData.scores,
+        comprehension:   formData.comp,
+        attitude:        formData.attitude,
+        instructorNotes: formData.notes
+      });
+      showToast('授業記録を保存しました ✓');
+    }
 
-    // 保存成功のトースト通知
-    showToast('授業記録を保存しました ✓');
-
-    // 履歴タブに切り替えて保存内容を確認しやすくする
     switchMode('history');
   });
 }
