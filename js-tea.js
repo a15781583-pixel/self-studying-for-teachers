@@ -1,4 +1,12 @@
 /* ===========================
+   スター文字列生成ユーティリティ（重複削減）
+=========================== */
+function renderStars(rawScore) {
+  const score = Math.min(Math.max(Number(rawScore) || 0, 0), 5);
+  return { score, stars: '★'.repeat(score) + '☆'.repeat(5 - score) };
+}
+
+/* ===========================
    日付取得のヘルパー関数（新規追加）
 =========================== */
 function getLocalDate() {
@@ -8,26 +16,22 @@ function getLocalDate() {
 }
 
 // 1. 生徒データの読み込み（なければ初期データを生成）
+function createDefaultStudentData(studentId) {
+  return {
+    studentId,
+    createdAt: getLocalDate(),
+    updatedAt: getLocalDate(),
+    basicInfo: { name: '', grade: '', subjects: [], goal: '', initialConcerns: '' },
+    lessonLogs: [],
+    aiDiagnostics: [],
+  };
+}
+
 function getStudentData(studentId) {
   const key = `student_data_${studentId}`;
   const jsonStr = localStorage.getItem(key);
 
-  if (!jsonStr) {
-    return {
-      studentId: studentId,
-      createdAt: getLocalDate(),
-      updatedAt: getLocalDate(),
-      basicInfo: {
-        name: '',
-        grade: '',
-        subjects: [],
-        goal: '',
-        initialConcerns: ''
-      },
-      lessonLogs: [],
-      aiDiagnostics: []
-    };
-  }
+  if (!jsonStr) return createDefaultStudentData(studentId);
 
   try {
     const data = JSON.parse(jsonStr);
@@ -36,20 +40,17 @@ function getStudentData(studentId) {
     return data;
   } catch (e) {
     console.error("データのパースエラー:", e);
-    return {
-      studentId: studentId,
-      createdAt: getLocalDate(),
-      updatedAt: getLocalDate(),
-      basicInfo: { name: '', grade: '', subjects: [], goal: '', initialConcerns: '' },
-      lessonLogs: [],
-      aiDiagnostics: []
-    };
+    // 返すだけにして保存はしない（既存データを壊さない）
+    // _parseError フラグにより呼び出し側・saveStudentData 側で保存をスキップできる
+    return { ...createDefaultStudentData(studentId), _parseError: true };
   }
 }  
 
 // 2. 生徒データの保存
 function saveStudentData(studentData) {
   if (!studentData || !studentData.studentId) return;
+  // パースエラー由来の空データが流れ込んでも既存データを上書きしない
+  if (studentData._parseError) return;
   
   studentData.updatedAt = getLocalDate();
   
@@ -114,6 +115,32 @@ function updateLessonLog(studentId, logId, updatedFields) {
   return data;
 }
 
+// 7. 授業ログのペイロードを生成するヘルパー関数
+function buildLessonLogPayload(formData, lessonDate) {
+  return {
+    date:            lessonDate,
+    subject:         formData.subjects,
+    unit:            formData.scores,
+    comprehension:   formData.comp,
+    attitude:        formData.attitude,
+    instructorNotes: formData.notes
+  };
+}
+
+// 8. 授業ログを新規追加 or 更新する共通ヘルパー関数
+function saveOrUpdateLessonLog(studentId, formData, lessonDate) {
+  const payload = buildLessonLogPayload(formData, lessonDate);
+  if (_editingLogId) {
+    updateLessonLog(studentId, _editingLogId, payload);
+    _editingLogId = null;
+    _editingLog   = null;
+    return 'updated';
+  } else {
+    addLessonLog(studentId, payload);
+    return 'added';
+  }
+}
+
 /* ===========================
    使用モデル
    gemini-3.5-flash（無料枠あり）
@@ -173,6 +200,30 @@ async function fetchGeminiWithRetry(apiKey, requestBody, maxRetries = 3) {
 }
 
 /* ===========================
+   Geminiレスポンスのパースヘルパー
+=========================== */
+function parseGeminiResponse(data) {
+  if (data.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+    throw new Error('レスポンスがトークン上限に達しました。入力情報を減らすか、しばらく時間をおいて再試行してください。');
+  }
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!rawText) throw new Error('AIからのレスポンスを取得できませんでした。');
+  return JSON.parse(rawText);
+}
+
+/* ===========================
+   クリップボードコピー共通ヘルパー
+=========================== */
+function copyToClipboard(text, btnId, originalHTML) {
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    btn.innerHTML = '<i class="ti ti-check"></i> コピーしました';
+    setTimeout(() => { btn.innerHTML = originalHTML; }, 2000);
+  }).catch(() => showToast('コピーに失敗しました', 'error'));
+}
+
+/* ===========================
    フォームフィールド一覧
 =========================== */
 const FIELD_IDS = [
@@ -212,6 +263,19 @@ function createTestEntry() {
 
 function createShortTermGoalEntry() {
   return { text: '', deadline: '' };
+}
+
+/**
+ * students 配列の defaultName から最大番号を求め、
+ * studentCounter を「最大番号 + 1」にリセットする共通ヘルパー。
+ * initStudents / removeStudent / importData の3箇所で使用する。
+ */
+function resetStudentCounter() {
+  const max = students.reduce((m, s) => {
+    const match = (s.defaultName || '').match(/生徒\s*(\d+)/);
+    return match ? Math.max(m, parseInt(match[1], 10)) : m;
+  }, 0);
+  studentCounter = max + 1;
 }
 
 function createStudent() {
@@ -285,11 +349,7 @@ function initStudents() {
           modeInitialized: typeof t.modeInitialized === 'boolean' ? t.modeInitialized : false,
         }));
         // studentCounter を復元した生徒数より大きい値に設定し、番号重複を防ぐ
-        const _maxNum = students.reduce((max, s) => {
-          const m = (s.defaultName || '').match(/生徒\s*(\d+)/);
-          return m ? Math.max(max, parseInt(m[1], 10)) : max;
-        }, 0);
-        studentCounter = _maxNum + 1;
+        resetStudentCounter();
         // currentIndex を復元（範囲外の場合は 0 にフォールバック）
         const savedIdx = parseInt(localStorage.getItem(STUDENTS_INDEX_KEY) || '0', 10);
         currentIndex = (Number.isFinite(savedIdx) && savedIdx >= 0 && savedIdx < students.length)
@@ -821,8 +881,7 @@ function renderHistoryView() {
     const prevDiag = pastData.aiDiagnostics.length > 1
       ? pastData.aiDiagnostics[pastData.aiDiagnostics.length - 2]
       : null;
-    const score  = Math.min(Math.max(Number(lastDiag.overallScore) || 0, 0), 5);
-    const stars  = '★'.repeat(score) + '☆'.repeat(5 - score);
+    const { score, stars } = renderStars(lastDiag.overallScore);
     const pScore = prevDiag ? (Number(prevDiag.overallScore) || 0) : null;
     const diff   = pScore !== null ? score - pScore : null;
 
@@ -907,8 +966,7 @@ function renderHistoryView() {
     html += '<h3 class="history-section-title"><i class="ti ti-sparkles"></i> AI診断履歴</h3>';
     html += '<div class="accordion-list">';
     [...pastData.aiDiagnostics].reverse().forEach((diag, idx) => {
-      const score = Math.min(Math.max(Number(diag.overallScore) || 0, 0), 5);
-      const stars = '★'.repeat(score) + '☆'.repeat(5 - score);
+      const { score, stars } = renderStars(diag.overallScore);
       html += `
         <div class="accordion-item${idx === 0 ? ' is-open' : ''}">
           <div class="accordion-header">
@@ -1222,11 +1280,7 @@ function removeStudent(idx) {
   localStorage.removeItem(removedKey);
   students.splice(idx, 1);
   // 残存する最大番号+1 に studentCounter をリセット
-  const _maxNum = students.reduce((max, s) => {
-    const m = (s.defaultName || '').match(/生徒\s*(\d+)/);
-    return m ? Math.max(max, parseInt(m[1], 10)) : max;
-  }, 0);
-  studentCounter = _maxNum + 1;
+  resetStudentCounter();
   if (idx < currentIndex || currentIndex >= students.length) {
     currentIndex = Math.max(0, currentIndex - 1);
   }
@@ -1253,6 +1307,13 @@ function showInlineError(message) {
     </div>
   `;
   showState('state-error');
+}
+
+function showApiKeyError() {
+  showInlineError(
+    'APIキーを入力してください。<br>' +
+    '<small><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="color:inherit;">Google AI Studio で無料取得できます →</a></small>'
+  );
 }
 
 function updateScaleUI(val) {
@@ -1620,15 +1681,7 @@ ${d.homework || ''}
 ${d.teachingTips || ''}
 `.trim();
 
-    navigator.clipboard.writeText(fullText).then(() => {
-      const copyBtn = document.getElementById('lesson-copy-btn');
-      if (copyBtn) {
-        copyBtn.innerHTML = '<i class="ti ti-check"></i> コピーしました';
-        setTimeout(() => {
-          copyBtn.innerHTML = '<i class="ti ti-copy"></i> 授業案をコピー';
-        }, 2000);
-      }
-    }).catch(() => showToast('コピーに失敗しました', 'error'));
+    copyToClipboard(fullText, 'lesson-copy-btn', '<i class="ti ti-copy"></i> 授業案をコピー');
   });
 
   // 診断レポートに切り替えるボタン（診断結果が存在する場合のみ表示）
@@ -1650,8 +1703,7 @@ ${d.teachingTips || ''}
    診断結果をHTMLに描画する・初期化
 =========================== */
 function renderResult(d, formData) {
-  const clampedScore = Math.min(Math.max(Number(d.overallScore) || 0, 0), 5);
-  const stars  = '★'.repeat(clampedScore) + '☆'.repeat(5 - clampedScore);
+  const { score: clampedScore, stars } = renderStars(d.overallScore);
   const subLine = [formData.grade, formData.subjects]
     .filter(v => v !== '未入力').join(' ／ ');
 
@@ -1808,25 +1860,13 @@ ${d.instructorAdvice || ''}
 ${d.parentMessage || ''}
 `.trim();
 
-    navigator.clipboard.writeText(fullText).then(() => {
-      const btn = document.getElementById('copy-all-btn');
-      btn.innerHTML = '<i class="ti ti-check"></i> レポート全体をコピーしました';
-      setTimeout(() => {
-        btn.innerHTML = '<i class="ti ti-copy"></i> レポート全体をコピー';
-      }, 2000);
-    }).catch(() => showToast('コピーに失敗しました', 'error'));
+    copyToClipboard(fullText, 'copy-all-btn', '<i class="ti ti-copy"></i> レポート全体をコピー');
   });
 
   // 3. 保護者用コメントコピーボタン
   document.getElementById('copy-btn').addEventListener('click', () => {
     const text = document.getElementById('parent-text').innerText;
-    navigator.clipboard.writeText(text).then(() => {
-      const btn = document.getElementById('copy-btn');
-      btn.innerHTML = '<i class="ti ti-check"></i> コピーしました';
-      setTimeout(() => {
-        btn.innerHTML = '<i class="ti ti-copy"></i> 保護者コメントのみコピー';
-      }, 2000);
-    }).catch(() => showToast('コピーに失敗しました', 'error'));
+    copyToClipboard(text, 'copy-btn', '<i class="ti ti-copy"></i> 保護者コメントのみコピー');
   });
 
   // 4. 次回授業案に切り替えるボタン（授業案が存在する場合のみ表示）
@@ -1912,6 +1952,10 @@ function importData(file) {
             mode:             'profile',
             modeInitialized:  false,
           }));
+          // ③ studentCounter リセット（initStudents と同じロジック）
+          // createStudent() の呼び出し回数分だけ余計に加算されたカウンタを
+          // インポートデータの最大番号 + 1 に揃え直す
+          resetStudentCounter();
           currentIndex = 0;
           saveStudentsTabs(); // インポートしたタブ一覧を永続化
           renderTabs();
@@ -2137,31 +2181,8 @@ function injectSaveLogButton() {
 
     const studentId = 'std_' + students[currentIndex].id;
 
-    if (_editingLogId) {
-      // 既存ログの更新
-      updateLessonLog(studentId, _editingLogId, {
-        date:            lessonDate,
-        subject:         formData.subjects,
-        unit:            formData.scores,
-        comprehension:   formData.comp,
-        attitude:        formData.attitude,
-        instructorNotes: formData.notes
-      });
-      _editingLogId = null;
-      _editingLog   = null;
-      showToast('授業記録を更新しました ✓');
-    } else {
-      // 新規ログの追加
-      addLessonLog(studentId, {
-        date:            lessonDate,
-        subject:         formData.subjects,
-        unit:            formData.scores,
-        comprehension:   formData.comp,
-        attitude:        formData.attitude,
-        instructorNotes: formData.notes
-      });
-      showToast('授業記録を保存しました ✓');
-    }
+    const action = saveOrUpdateLessonLog(studentId, formData, lessonDate);
+    showToast(action === 'updated' ? '授業記録を更新しました ✓' : '授業記録を保存しました ✓');
 
     switchMode('history');
   });
@@ -2172,6 +2193,11 @@ function injectSaveLogButton() {
    — DOM構築完了後に全イベントバインドを実行
 =========================== */
 document.addEventListener('DOMContentLoaded', () => {
+
+  // ── form-panel スクロールヘルパー ──
+  const scrollPanelToBottom = () =>
+    setTimeout(() => document.getElementById('form-panel')
+      ?.scrollTo({ top: Infinity, behavior: 'smooth' }), 50);
 
   // ── 理解度スケールボタン ──
   document.querySelectorAll('#comp-scale .scale-btn').forEach(btn => {
@@ -2219,10 +2245,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const newIdx = list.querySelectorAll('.test-entry').length;
     list.appendChild(createTestEntryElement(createTestEntry(), newIdx));
   
-    const panel = document.getElementById('form-panel');
-    setTimeout(() => {
-      panel.scrollTo({ top: panel.scrollHeight, behavior: 'smooth' });
-    }, 50);
+    scrollPanelToBottom();
   });
 
   // ── 短期目標追加ボタン ──
@@ -2232,27 +2255,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const newIdx = list.querySelectorAll('.goal-entry').length;
     list.appendChild(createGoalEntryElement(createShortTermGoalEntry(), newIdx));
 
-    const panel = document.getElementById('form-panel');
-    setTimeout(() => {
-      panel.scrollTo({ top: panel.scrollHeight, behavior: 'smooth' });
-    }, 50);
+    scrollPanelToBottom();
   });
 
   /* ===========================
      AI診断レポートを生成する（日付選択 ＆ 構造化出力で100%安定化）
   =========================== */
-  /* ===========================
-     AI診断レポートを生成する（日付選択 ＆ 構造化出力で100%安定化）
-  =========================== */
   document.getElementById('gen-btn')?.addEventListener('click', async () => {
     const apiKey = document.getElementById('api-key')?.value.trim();
-    if (!apiKey) {
-      showInlineError(
-        'APIキーを入力してください。<br>' +
-        '<small><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="color:inherit;">Google AI Studio で無料取得できます →</a></small>'
-      );
-      return;
-    }
+    if (!apiKey) { showApiKeyError(); return; }
 
     const btn = document.getElementById('gen-btn');
     btn.disabled = true;
@@ -2378,41 +2389,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
 
-      // トークン上限でJSONが途中で切れた場合を検出
-      const finishReason = data.candidates?.[0]?.finishReason;
-      if (finishReason === 'MAX_TOKENS') {
-        throw new Error('レスポンスがトークン上限に達しました。入力情報を減らすか、しばらく時間をおいて再試行してください。');
-      }
-
-      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!rawText) {
-        throw new Error('AIからのレスポンスを取得できませんでした。');
-      }
-      const result = JSON.parse(rawText);
+      const result = parseGeminiResponse(data);
       // API通信成功後に授業ログと診断結果を保存する
-      if (_editingLogId) {
-        // 編集モード: 既存ログを更新
-        updateLessonLog(studentId, _editingLogId, {
-          date:            lessonDate,
-          subject:         formData.subjects,
-          unit:            formData.scores,
-          comprehension:   formData.comp,
-          attitude:        formData.attitude,
-          instructorNotes: formData.notes
-        });
-        _editingLogId = null;
-        _editingLog   = null;
-      } else {
-        // 新規モード: ログを追加
-        addLessonLog(studentId, {
-          date:            lessonDate,
-          subject:         formData.subjects,
-          unit:            formData.scores,
-          comprehension:   formData.comp,
-          attitude:        formData.attitude,
-          instructorNotes: formData.notes
-        });
-      }
+      saveOrUpdateLessonLog(studentId, formData, lessonDate);
 
       addAIDiagnostics(studentId, result);
 
@@ -2440,13 +2419,7 @@ document.addEventListener('DOMContentLoaded', () => {
   =========================== */
   document.getElementById('next-lesson-btn')?.addEventListener('click', async () => {
     const apiKey = document.getElementById('api-key')?.value.trim();
-    if (!apiKey) {
-      showInlineError(
-        'APIキーを入力してください。<br>' +
-        '<small><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="color:inherit;">Google AI Studio で無料取得できます →</a></small>'
-      );
-      return;
-    }
+    if (!apiKey) { showApiKeyError(); return; }
 
     const btn = document.getElementById('next-lesson-btn');
     btn.disabled = true;
@@ -2522,14 +2495,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
 
-      // トークン上限でJSONが途中で切れた場合を検出
-      const finishReason2 = data.candidates?.[0]?.finishReason;
-      if (finishReason2 === 'MAX_TOKENS') {
-        throw new Error('レスポンスがトークン上限に達しました。入力情報を減らすか、しばらく時間をおいて再試行してください。');
-      }
-
-      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      const result  = JSON.parse(rawText);
+      const result = parseGeminiResponse(data);
 
       students[currentIndex].lessonPlanResult = result;
       students[currentIndex].lastResultType   = 'lessonplan';
