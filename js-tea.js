@@ -1042,7 +1042,7 @@ function renderHistoryView() {
       _editingLog   = log;   // バグ②修正: unit引き継ぎ用にログオブジェクトを保持
       switchMode('report');
       loadLogIntoReportForm(log);
-      showToast('授業記録を編集中です。修正後に「授業記録のみ保存する」を押してください。');
+      showToast('授業記録を編集中です。');
     });
   });
 
@@ -2200,7 +2200,7 @@ function injectSaveLogButton() {
     btn.type      = 'button';
     btn.className = 'action-btn';
     btn.id        = 'save-log-btn';
-    btn.innerHTML = '<i class="ti ti-save"></i> 授業記録のみ保存する';
+    btn.innerHTML = '<i class="ti ti-save"></i> 編集内容を保存';
 
     // gen-btn の直後に挿入
     genBtn.insertAdjacentElement('afterend', btn);
