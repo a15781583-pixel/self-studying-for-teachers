@@ -208,7 +208,11 @@ function parseGeminiResponse(data) {
   }
   const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!rawText) throw new Error('AIからのレスポンスを取得できませんでした。');
-  return JSON.parse(rawText);
+  try {
+    return JSON.parse(rawText);
+  } catch (e) {
+    throw new Error('AIレスポンスの解析に失敗しました。しばらくしてから再試行してください。');
+  }
 }
 
 /* ===========================
@@ -641,6 +645,15 @@ function injectSubNavStyles() {
       display: block;
       width: 100%;
     }
+    .action-btn-danger {
+      border-color: #fca5a5;
+      color: #dc2626;
+    }
+    .action-btn-danger:hover {
+      background: #fef2f2;
+      border-color: #f87171;
+      color: #b91c1c;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -758,11 +771,16 @@ function updateBasicInfoLock(s) {
 
 /** サブナビボタン押下時: フォームを保存してモードを切り替える */
 function switchMode(mode) {
+  // 編集中に report 以外へ切替する場合は確認を取る
+  if (mode !== 'report' && _editingLogId) {
+    if (!confirm('編集中の内容は保存されません。移動しますか？')) return;
+  }
   if (mode !== 'report') { _editingLogId = null; _editingLog = null; }
   saveCurrentForm();
   students[currentIndex].mode = mode;
   updateSubNavActive(mode);
   showModeSection(mode);
+  updateEditModeUI(); 
 }
 
 /**
@@ -1918,7 +1936,7 @@ function exportAllData() {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 100);
   showToast('エクスポートが完了しました ✓');
 }
 
@@ -2145,15 +2163,34 @@ function renderSummaryPanel() {
 /* ===========================
    授業記録のみを保存する（新規追加）
 =========================== */
+function updateEditModeUI() {
+  const isEditing = !!_editingLogId;
+  const genBtn    = document.getElementById('gen-btn');
+  const nextBtn   = document.getElementById('next-lesson-btn');
+  const cancelBtn = document.getElementById('cancel-edit-btn');
+  if (genBtn)    genBtn.style.display    = isEditing ? 'none' : '';
+  if (nextBtn)   nextBtn.style.display   = isEditing ? 'none' : '';
+  if (cancelBtn) cancelBtn.style.display = isEditing ? ''     : 'none';
+}
 
-/**
- * #gen-btn の直後に「授業記録のみ保存する」ボタンを動的挿入し、
- * クリック時のイベントリスナーを設定する。
- * 初期化時に一度だけ呼ばれる想定（二重挿入ガード付き）。
- */
+function cancelEditMode() {
+  _editingLogId = null;
+  _editingLog   = null;
+  // フォームを編集開始前の状態（student.data）に復元
+  restoreForm(students[currentIndex]);
+  // 履歴タブへ直接遷移（saveCurrentForm をスキップ）
+  students[currentIndex].mode = 'history';
+  saveStudentsTabs();
+  updateSubNavActive('history');
+  showModeSection('history');
+  updateEditModeUI();
+  showToast('編集をキャンセルしました');
+}
+
 function injectSaveLogButton() {
   // HTML に既存のボタンがあればそのまま使い、なければ動的生成して gen-btn の直後に挿入
   let btn = document.getElementById('save-log-btn');
+  let cancelBtn = document.getElementById('cancel-edit-btn');
 
   if (!btn) {
     const genBtn = document.getElementById('gen-btn');
@@ -2169,6 +2206,17 @@ function injectSaveLogButton() {
     genBtn.insertAdjacentElement('afterend', btn);
   }
 
+  if (!cancelBtn) {
+    cancelBtn = document.createElement('button');
+    cancelBtn.type      = 'button';
+    cancelBtn.className = 'action-btn action-btn-danger';
+    cancelBtn.id        = 'cancel-edit-btn';
+    cancelBtn.style.display = 'none'; // 通常時は非表示
+    cancelBtn.innerHTML = '<i class="ti ti-x"></i> 編集をキャンセル';
+    btn.insertAdjacentElement('afterend', cancelBtn);
+  }
+  cancelBtn.addEventListener('click', cancelEditMode);
+
   // ── イベントリスナー（HTML 既存・動的生成どちらも対応）──
   btn.addEventListener('click', () => {
     const formData   = buildFormData();
@@ -2179,12 +2227,24 @@ function injectSaveLogButton() {
       return;
     }
 
-    const studentId = 'std_' + students[currentIndex].id;
+    const studentId  = 'std_' + students[currentIndex].id;
+    const wasEditing = !!_editingLogId; // 保存前に編集モードを記憶
 
     const action = saveOrUpdateLessonLog(studentId, formData, lessonDate);
     showToast(action === 'updated' ? '授業記録を更新しました ✓' : '授業記録を保存しました ✓');
 
-    switchMode('history');
+    if (wasEditing) {
+      // 編集時: saveCurrentForm() をスキップして s.data を汚染しない
+      // saveOrUpdateLessonLog 内で _editingLogId / _editingLog はクリア済み
+      restoreForm(students[currentIndex]); // pre-edit の s.data を復元
+      students[currentIndex].mode = 'history';
+      saveStudentsTabs();
+      updateSubNavActive('history');
+      showModeSection('history');
+      updateEditModeUI();
+    } else {
+      switchMode('history'); // 新規保存時は従来通り
+    }
   });
 }
 
@@ -2411,9 +2471,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  /* ===========================
-     Step 5: 次回授業案を生成する（軽量プロンプト / maxOutputTokens:800）
-  =========================== */
   /* ===========================
      Step 5: 次回授業案を生成する（軽量プロンプト / maxOutputTokens:800）
   =========================== */
