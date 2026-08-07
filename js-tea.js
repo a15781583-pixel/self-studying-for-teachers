@@ -1628,7 +1628,7 @@ ${d.teachingTips || ''}
           copyBtn.innerHTML = '<i class="ti ti-copy"></i> 授業案をコピー';
         }, 2000);
       }
-    });
+    }).catch(() => showToast('コピーに失敗しました', 'error'));
   });
 
   // 診断レポートに切り替えるボタン（診断結果が存在する場合のみ表示）
@@ -1814,7 +1814,7 @@ ${d.parentMessage || ''}
       setTimeout(() => {
         btn.innerHTML = '<i class="ti ti-copy"></i> レポート全体をコピー';
       }, 2000);
-    });
+    }).catch(() => showToast('コピーに失敗しました', 'error'));
   });
 
   // 3. 保護者用コメントコピーボタン
@@ -1826,7 +1826,7 @@ ${d.parentMessage || ''}
       setTimeout(() => {
         btn.innerHTML = '<i class="ti ti-copy"></i> 保護者コメントのみコピー';
       }, 2000);
-    });
+    }).catch(() => showToast('コピーに失敗しました', 'error'));
   });
 
   // 4. 次回授業案に切り替えるボタン（授業案が存在する場合のみ表示）
@@ -2390,14 +2390,29 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       const result = JSON.parse(rawText);
       // API通信成功後に授業ログと診断結果を保存する
-      addLessonLog(studentId, {
-        date: lessonDate,
-        subject: formData.subjects,
-        unit: formData.scores,
-        comprehension: formData.comp,
-        attitude: formData.attitude,
-        instructorNotes: formData.notes
-      });
+      if (_editingLogId) {
+        // 編集モード: 既存ログを更新
+        updateLessonLog(studentId, _editingLogId, {
+          date:            lessonDate,
+          subject:         formData.subjects,
+          unit:            formData.scores,
+          comprehension:   formData.comp,
+          attitude:        formData.attitude,
+          instructorNotes: formData.notes
+        });
+        _editingLogId = null;
+        _editingLog   = null;
+      } else {
+        // 新規モード: ログを追加
+        addLessonLog(studentId, {
+          date:            lessonDate,
+          subject:         formData.subjects,
+          unit:            formData.scores,
+          comprehension:   formData.comp,
+          attitude:        formData.attitude,
+          instructorNotes: formData.notes
+        });
+      }
 
       addAIDiagnostics(studentId, result);
 
