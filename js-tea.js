@@ -1261,6 +1261,8 @@ function renderTabs() {
     if (closeBtn) {
       closeBtn.addEventListener('click', e => {
         e.stopPropagation();
+        const name = students[i].data?.['f-name']?.trim() || students[i].tabName;
+        if (!confirm(`「${name}」のデータを削除しますか？\nこの操作は元に戻せません。`)) return;
         removeStudent(i);
       });
     }
