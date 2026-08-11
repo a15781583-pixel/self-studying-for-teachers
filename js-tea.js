@@ -735,6 +735,9 @@ function showModeSection(mode) {
     } else if (mode === 'profile' && child.dataset.section === 'report') {
       // 基本情報タブでは report 専用要素を非表示
       child.style.display = 'none';
+    } else if (mode === 'report' && child.dataset.section === 'profile') {
+      // 【追加】授業記録タブでは profile 専用要素を非表示
+      child.style.display = 'none';
     } else {
       child.style.display = '';
     }
