@@ -63,14 +63,15 @@ function addLessonLog(studentId, logData) {
   const data = getStudentData(studentId);
   
   const newLog = {
-    logId: `log_${Date.now()}`,
+    logId: `log_${crypto.randomUUID()}`,
     date: logData.date || getLocalDate(),
     subject: logData.subject || '',
     unit: logData.unit || '',
     comprehension: parseComprehension(logData.comprehension),
     attitude: logData.attitude || '',
     instructorNotes: logData.instructorNotes || '',
-    homeworkStatus: logData.homeworkStatus || ''
+    homeworkStatus: logData.homeworkStatus || '',
+    lessonContent: logData.lessonContent || ''
   };
 
   data.lessonLogs.push(newLog);
@@ -83,7 +84,7 @@ function addAIDiagnostics(studentId, aiResult) {
   const data = getStudentData(studentId);
   
   const newDiag = {
-    diagId: `diag_${Date.now()}`,
+    diagId: `diag_${crypto.randomUUID()}`,
     date: getLocalDate(),
     ...aiResult
   };
@@ -123,7 +124,8 @@ function buildLessonLogPayload(formData, lessonDate) {
     unit:            formData.scores,
     comprehension:   formData.comp,
     attitude:        formData.attitude,
-    instructorNotes: formData.notes
+    instructorNotes: formData.notes,
+    lessonContent:   formData.lessonContent
   };
 }
 
@@ -777,8 +779,12 @@ function switchMode(mode) {
   // 編集中に report 以外へ切替する場合は確認を取る
   if (mode !== 'report' && _editingLogId) {
     if (!confirm('編集中の内容は保存されません。移動しますか？')) return;
+    // 編集状態を解除し、フォームを生徒の基本データに戻してから保存する
+    // （ログ編集中のデータ date/comp/attitude/notes が student.data に上書きされるのを防ぐ）
+    _editingLogId = null;
+    _editingLog   = null;
+    restoreForm(students[currentIndex]);
   }
-  if (mode !== 'report') { _editingLogId = null; _editingLog = null; }
   saveCurrentForm();
   students[currentIndex].mode = mode;
   updateSubNavActive(mode);
@@ -870,6 +876,9 @@ function loadLogIntoReportForm(log) {
   // log.unit は保存時に buildFormData().scores として記録されたテキスト。
   // parseUnitToTestEntries でテストエントリー配列に変換してから renderTestList で描画する。
   renderTestList(parseUnitToTestEntries(log.unit));
+  // 実施授業内容を復元
+  const lessonContentEl = document.getElementById('f-lesson-content');
+  if (lessonContentEl) lessonContentEl.value = log.lessonContent || '';
 }
 
 /** 履歴セクションに localStorage の過去データを描画する */
@@ -1391,7 +1400,14 @@ function buildFormData() {
     shortTermGoals: shortTermGoalsText,
     concerns:       getVal('f-concerns') || '未入力',
     notes:          getVal('f-notes')    || '未入力',
+    lessonContent:  getVal('f-lesson-content') || '未入力',
   };
+}
+
+// buildFormData() の直後に追加
+function resetLessonContentField() {
+  const el = document.getElementById('f-lesson-content');
+  if (el) el.value = '';
 }
 
 function showState(id) {
@@ -2209,6 +2225,37 @@ function injectSaveLogButton() {
 
     // gen-btn の直後に挿入
     genBtn.insertAdjacentElement('afterend', btn);
+
+    // ── 新規生成時のみリスナーを登録（二重登録を防ぐ）──
+    btn.onclick = () => {
+      const formData   = buildFormData();
+      const lessonDate = getVal('lesson-date') || getLocalDate();
+
+      if (!formData.name || formData.name === '未入力') {
+        showToast('生徒名を入力してください', 'error');
+        return;
+      }
+
+      const studentId  = 'std_' + students[currentIndex].id;
+      const wasEditing = !!_editingLogId; // 保存前に編集モードを記憶
+
+      const action = saveOrUpdateLessonLog(studentId, formData, lessonDate);
+      showToast(action === 'updated' ? '授業記録を更新しました ✓' : '授業記録を保存しました ✓');
+      resetLessonContentField();   // 追加（switchMode/restoreForm の前に実行）
+
+      if (wasEditing) {
+        // 編集時: saveCurrentForm() をスキップして s.data を汚染しない
+        // saveOrUpdateLessonLog 内で _editingLogId / _editingLog はクリア済み
+        restoreForm(students[currentIndex]); // pre-edit の s.data を復元
+        students[currentIndex].mode = 'history';
+        saveStudentsTabs();
+        updateSubNavActive('history');
+        showModeSection('history');
+        updateEditModeUI();
+      } else {
+        switchMode('history'); // 新規保存時は従来通り
+      }
+    };
   }
 
   if (!cancelBtn) {
@@ -2219,38 +2266,10 @@ function injectSaveLogButton() {
     cancelBtn.style.display = 'none'; // 通常時は非表示
     cancelBtn.innerHTML = '<i class="ti ti-x"></i> 編集をキャンセル';
     btn.insertAdjacentElement('afterend', cancelBtn);
+
+    // ── 新規生成時のみリスナーを登録（二重登録を防ぐ）──
+    cancelBtn.onclick = cancelEditMode;
   }
-  cancelBtn.addEventListener('click', cancelEditMode);
-
-  // ── イベントリスナー（HTML 既存・動的生成どちらも対応）──
-  btn.addEventListener('click', () => {
-    const formData   = buildFormData();
-    const lessonDate = getVal('lesson-date') || getLocalDate();
-
-    if (!formData.name || formData.name === '未入力') {
-      showToast('生徒名を入力してください', 'error');
-      return;
-    }
-
-    const studentId  = 'std_' + students[currentIndex].id;
-    const wasEditing = !!_editingLogId; // 保存前に編集モードを記憶
-
-    const action = saveOrUpdateLessonLog(studentId, formData, lessonDate);
-    showToast(action === 'updated' ? '授業記録を更新しました ✓' : '授業記録を保存しました ✓');
-
-    if (wasEditing) {
-      // 編集時: saveCurrentForm() をスキップして s.data を汚染しない
-      // saveOrUpdateLessonLog 内で _editingLogId / _editingLog はクリア済み
-      restoreForm(students[currentIndex]); // pre-edit の s.data を復元
-      students[currentIndex].mode = 'history';
-      saveStudentsTabs();
-      updateSubNavActive('history');
-      showModeSection('history');
-      updateEditModeUI();
-    } else {
-      switchMode('history'); // 新規保存時は従来通り
-    }
-  });
 }
 
 /* ===========================
@@ -2398,6 +2417,7 @@ document.addEventListener('DOMContentLoaded', () => {
   `).join('') : '過去の授業ログはありません'}
 
   【今回の授業レポート (${lessonDate})】
+  実施授業内容: ${formData.lessonContent}
   理解度（10段階）: ${formData.comp}
   テスト・単元結果: ${formData.scores}
   学習態度・自習状況: ${formData.attitude}
@@ -2464,6 +2484,7 @@ document.addEventListener('DOMContentLoaded', () => {
       students[currentIndex].lastResultType = 'diagnosis';
       renderResult(result, formData);
       showState('state-result');
+      resetLessonContentField();   // 追加
 
     } catch (err) {
       showInlineError(
@@ -2517,6 +2538,7 @@ document.addEventListener('DOMContentLoaded', () => {
     : '過去の授業ログはありません'}
 
   【今回の授業（${lessonDate}）】
+  実施授業内容: ${formData.lessonContent}
   理解度（10段階）: ${formData.comp}
   テスト・単元結果: ${formData.scores}
   学習態度: ${formData.attitude}
@@ -2563,6 +2585,7 @@ document.addEventListener('DOMContentLoaded', () => {
       students[currentIndex].lastResultType   = 'lessonplan';
       renderLessonPlanResult(result, formData);
       showState('state-result');
+      resetLessonContentField();   // 追加
 
     } catch (err) {
       showInlineError(
