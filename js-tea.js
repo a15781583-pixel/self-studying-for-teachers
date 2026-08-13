@@ -1206,6 +1206,12 @@ function restoreForm(s) {
     if (el) el.value = s.data[id] || '';
   });
 
+  // 授業日フィールドが未入力の場合のみ、今日の日付を自動セット
+  const lessonDateEl = document.getElementById('lesson-date');
+  if (lessonDateEl && !s.data['lesson-date']) {
+    lessonDateEl.value = getLocalDate();
+  }
+
   updateScaleUI(s.data['f-comp'] || '');
 
   selectedSubjects.clear();
@@ -2650,6 +2656,17 @@ document.addEventListener('DOMContentLoaded', () => {
   renderTabs();
   restoreForm(students[currentIndex]);
   injectSaveLogButton();
+
+  /* ===========================
+     APIキー 表示/非表示トグル
+  =========================== */
+  document.getElementById('api-key-toggle')?.addEventListener('click', () => {
+    const input   = document.getElementById('api-key');
+    const icon    = document.querySelector('#api-key-toggle .ti');
+    const isHidden = input.type === 'password';
+    input.type    = isHidden ? 'text' : 'password';
+    icon.className = `ti ${isHidden ? 'ti-eye-off' : 'ti-eye'}`;
+  });
 
   /* ===========================
      APIキーの永続化
