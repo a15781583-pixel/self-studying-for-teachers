@@ -2189,10 +2189,18 @@ function updateEditModeUI() {
   const isEditing = !!_editingLogId;
   const genBtn    = document.getElementById('gen-btn');
   const nextBtn   = document.getElementById('next-lesson-btn');
+  const saveBtn   = document.getElementById('save-log-btn');   // ← 追加
   const cancelBtn = document.getElementById('cancel-edit-btn');
   if (genBtn)    genBtn.style.display    = isEditing ? 'none' : '';
   if (nextBtn)   nextBtn.style.display   = isEditing ? 'none' : '';
   if (cancelBtn) cancelBtn.style.display = isEditing ? ''     : 'none';
+  // ↓ 追加：編集モードに応じてラベルとスタイルクラスを切り替える
+  if (saveBtn) {
+    saveBtn.innerHTML = isEditing
+      ? '<i class="ti ti-device-floppy"></i> 編集内容を保存'
+      : '<i class="ti ti-save"></i> 授業記録のみ保存する';
+    saveBtn.classList.toggle('save-log-btn--editing', isEditing);
+  }
 }
 
 function cancelEditMode() {
@@ -2222,7 +2230,7 @@ function injectSaveLogButton() {
     btn.type      = 'button';
     btn.className = 'action-btn';
     btn.id        = 'save-log-btn';
-    btn.innerHTML = '<i class="ti ti-save"></i> 編集内容を保存';
+    btn.innerHTML = '<i class="ti ti-save"></i> 授業記録のみ保存する';
 
     // gen-btn の直後に挿入
     genBtn.insertAdjacentElement('afterend', btn);
