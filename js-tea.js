@@ -238,6 +238,7 @@ const FIELD_IDS = [
   'f-comp',
   'f-attitude',
   'f-goal', 'f-concerns', 'f-notes',
+  'f-lesson-content',
 ];
 
 /* ===========================
@@ -2225,38 +2226,38 @@ function injectSaveLogButton() {
 
     // gen-btn の直後に挿入
     genBtn.insertAdjacentElement('afterend', btn);
-
-    // ── 新規生成時のみリスナーを登録（二重登録を防ぐ）──
-    btn.onclick = () => {
-      const formData   = buildFormData();
-      const lessonDate = getVal('lesson-date') || getLocalDate();
-
-      if (!formData.name || formData.name === '未入力') {
-        showToast('生徒名を入力してください', 'error');
-        return;
-      }
-
-      const studentId  = 'std_' + students[currentIndex].id;
-      const wasEditing = !!_editingLogId; // 保存前に編集モードを記憶
-
-      const action = saveOrUpdateLessonLog(studentId, formData, lessonDate);
-      showToast(action === 'updated' ? '授業記録を更新しました ✓' : '授業記録を保存しました ✓');
-      resetLessonContentField();   // 追加（switchMode/restoreForm の前に実行）
-
-      if (wasEditing) {
-        // 編集時: saveCurrentForm() をスキップして s.data を汚染しない
-        // saveOrUpdateLessonLog 内で _editingLogId / _editingLog はクリア済み
-        restoreForm(students[currentIndex]); // pre-edit の s.data を復元
-        students[currentIndex].mode = 'history';
-        saveStudentsTabs();
-        updateSubNavActive('history');
-        showModeSection('history');
-        updateEditModeUI();
-      } else {
-        switchMode('history'); // 新規保存時は従来通り
-      }
-    };
   }
+
+  // ── HTML既存ボタン・動的生成ボタンどちらにも必ず onclick を設定する ──
+  btn.onclick = () => {
+    const formData   = buildFormData();
+    const lessonDate = getVal('lesson-date') || getLocalDate();
+
+    if (!formData.name || formData.name === '未入力') {
+      showToast('生徒名を入力してください', 'error');
+      return;
+    }
+
+    const studentId  = 'std_' + students[currentIndex].id;
+    const wasEditing = !!_editingLogId; // 保存前に編集モードを記憶
+
+    const action = saveOrUpdateLessonLog(studentId, formData, lessonDate);
+    showToast(action === 'updated' ? '授業記録を更新しました ✓' : '授業記録を保存しました ✓');
+    resetLessonContentField();   // switchMode/restoreForm の前に実行
+
+    if (wasEditing) {
+      // 編集時: saveCurrentForm() をスキップして s.data を汚染しない
+      // saveOrUpdateLessonLog 内で _editingLogId / _editingLog はクリア済み
+      restoreForm(students[currentIndex]); // pre-edit の s.data を復元
+      students[currentIndex].mode = 'history';
+      saveStudentsTabs();
+      updateSubNavActive('history');
+      showModeSection('history');
+      updateEditModeUI();
+    } else {
+      switchMode('history'); // 新規保存時は従来通り
+    }
+  };
 
   if (!cancelBtn) {
     cancelBtn = document.createElement('button');
@@ -2266,10 +2267,10 @@ function injectSaveLogButton() {
     cancelBtn.style.display = 'none'; // 通常時は非表示
     cancelBtn.innerHTML = '<i class="ti ti-x"></i> 編集をキャンセル';
     btn.insertAdjacentElement('afterend', cancelBtn);
-
-    // ── 新規生成時のみリスナーを登録（二重登録を防ぐ）──
-    cancelBtn.onclick = cancelEditMode;
   }
+
+  // ── HTML既存ボタン・動的生成ボタンどちらにも必ず onclick を設定する ──
+  cancelBtn.onclick = cancelEditMode;
 }
 
 /* ===========================
@@ -2585,6 +2586,7 @@ document.addEventListener('DOMContentLoaded', () => {
       students[currentIndex].lastResultType   = 'lessonplan';
       renderLessonPlanResult(result, formData);
       showState('state-result');
+      saveOrUpdateLessonLog(studentId, formData, lessonDate);
       resetLessonContentField();   // 追加
 
     } catch (err) {
