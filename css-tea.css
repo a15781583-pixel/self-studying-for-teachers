@@ -1,21 +1,9 @@
-@charset "UTF-8";
 /* ===========================
    リセット・ベース
 =========================== */
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
-  padding: 0;
-}
-
-button {
-  -webkit-appearance: none;
-  appearance: none;
-  font-family: 'Noto Sans JP', sans-serif; /* または inherit */
-  font-size: inherit;
-  cursor: pointer;
-  border: none;
-  background: none;
   padding: 0;
 }
 
@@ -1188,6 +1176,20 @@ body {
   color: #0f172a;
 }
 
+/* フォーカスリング（キーボード操作対応） */
+.action-btn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* ホバー時にわずかに浮かせる（主要ボタンとの統一感） */
+.action-btn:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+.action-btn:active {
+  transform: translateY(0);
+}
+
 .action-btn-primary {
   background: #1b3a6b;
   border-color: #1b3a6b;
@@ -1221,6 +1223,19 @@ body {
   background: #f0fdfa;
   border-color: #0f766e;
   color: #0d6b63;
+}
+
+.action-btn-danger {
+  background: #fff1f2;
+  border-color: #fca5a5;
+  color: #dc2626;
+  font-weight: 700;
+}
+.action-btn-danger:hover {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
 }
 
 /* ===========================
@@ -1710,4 +1725,34 @@ body {
   background: transparent;
   color: var(--text-muted, #6b7280);
   cursor: pointer;
+}
+
+/* ===========================
+   授業記録保存ボタン：状態別スタイル
+=========================== */
+
+/* 通常時：グリーン系アウトライン */
+#save-log-btn {
+  border-color: #16a34a;
+  color: #15803d;
+}
+#save-log-btn:hover {
+  background: #f0fdf4;
+  border-color: #15803d;
+  color: #166534;
+}
+
+/* 編集モード時：アンバー系ソリッド（視認性UP） */
+#save-log-btn.save-log-btn--editing {
+  background: #d97706;
+  border-color: #d97706;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.3);
+}
+#save-log-btn.save-log-btn--editing:hover {
+  background: #b45309;
+  border-color: #b45309;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(180, 83, 9, 0.35);
+  transform: translateY(-1px);
 }
