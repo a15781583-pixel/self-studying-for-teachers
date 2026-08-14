@@ -145,11 +145,11 @@ function saveOrUpdateLessonLog(studentId, formData, lessonDate) {
 
 /* ===========================
    使用モデル
-   gemini-3.5-flash（無料枠あり）
+   gemini-3.7-flash（無料枠あり）
    ※ Google AI Studio で取得した APIキーを使用
    https://aistudio.google.com/app/apikey
 =========================== */
-const GEMINI_MODEL    = 'gemini-3.5-flash';
+const GEMINI_MODEL    = 'gemini-3.7-flash';
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent`;
 
 /* ===========================
