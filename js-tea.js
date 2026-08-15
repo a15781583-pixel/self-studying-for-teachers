@@ -17,10 +17,11 @@ function getLocalDate() {
 
 // 1. 生徒データの読み込み（なければ初期データを生成）
 function createDefaultStudentData(studentId) {
+  const today = getLocalDate();
   return {
     studentId,
-    createdAt: getLocalDate(),
-    updatedAt: getLocalDate(),
+    createdAt: today,
+    updatedAt: today,
     basicInfo: { name: '', grade: '', subjects: [], goal: '', initialConcerns: '' },
     lessonLogs: [],
     aiDiagnostics: [],
@@ -28,7 +29,7 @@ function createDefaultStudentData(studentId) {
 }
 
 function getStudentData(studentId) {
-  const key = `student_data_${studentId}`;
+  const key = studentKey(studentId);
   const jsonStr = localStorage.getItem(key);
 
   if (!jsonStr) return createDefaultStudentData(studentId);
@@ -54,14 +55,20 @@ function saveStudentData(studentData) {
   
   studentData.updatedAt = getLocalDate();
   
-  const key = `student_data_${studentData.studentId}`;
+  const key = studentKey(studentData.studentId);
   localStorage.setItem(key, JSON.stringify(studentData));
+}
+
+// get → mutate → save パターンの共通ヘルパー
+function mutateStudentData(studentId, fn) {
+  const data = getStudentData(studentId);
+  fn(data);
+  saveStudentData(data);
+  return data;
 }
 
 // 3. 授業ログ（日々の指導レポート）を追加して保存する関数
 function addLessonLog(studentId, logData) {
-  const data = getStudentData(studentId);
-  
   const newLog = {
     logId: `log_${crypto.randomUUID()}`,
     date: logData.date || getLocalDate(),
@@ -72,33 +79,24 @@ function addLessonLog(studentId, logData) {
     instructorNotes: logData.instructorNotes || '',
     lessonContent: logData.lessonContent || ''
   };
-
-  data.lessonLogs.push(newLog);
-  saveStudentData(data);
-  return data;
+  return mutateStudentData(studentId, d => d.lessonLogs.push(newLog));
 }
 
 // 4. 生成されたAI診断結果を履歴に追加して保存する関数
 function addAIDiagnostics(studentId, aiResult) {
-  const data = getStudentData(studentId);
-  
   const newDiag = {
     diagId: `diag_${crypto.randomUUID()}`,
     date: getLocalDate(),
     ...aiResult
   };
-
-  data.aiDiagnostics.push(newDiag);
-  saveStudentData(data);
-  return data;
+  return mutateStudentData(studentId, d => d.aiDiagnostics.push(newDiag));
 }
 
 // 5. 授業ログを削除する関数
 function deleteLessonLog(studentId, logId) {
-  const data = getStudentData(studentId);
-  data.lessonLogs = data.lessonLogs.filter(l => l.logId !== logId);
-  saveStudentData(data);
-  return data;
+  return mutateStudentData(studentId, d => {
+    d.lessonLogs = d.lessonLogs.filter(l => l.logId !== logId);
+  });
 }
 
 // 6. 授業ログを更新する関数
@@ -154,6 +152,7 @@ const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1/models/${G
 /* ===========================
    localStorage キー定数
 =========================== */
+const studentKey         = id => `student_data_${id}`;
 const STUDENTS_TABS_KEY  = 'app_students_tabs';
 const STUDENTS_INDEX_KEY = 'app_students_index';
 
@@ -1060,43 +1059,22 @@ function renderHistoryView() {
     });
   });
 
-  // ── AI診断ボタン ──
-  historySec.querySelectorAll('.ai-diag-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const apiKey = document.getElementById('api-key')?.value.trim();
-      if (!apiKey) { showApiKeyError(); return; }
-      const logId = btn.dataset.logid;
-      const log = pastData.lessonLogs.find(l => l.logId === logId);
-      if (!log) return;
-      runDiagnosisGeneration(
-        apiKey,
-        buildFormDataFromLog(log, students[currentIndex]),
-        log.date,
-        studentId,
-        btn
-      );
+  // ── AI系ボタン共通ハンドラ ──
+  function bindAiLogBtn(selector, runFn) {
+    historySec.querySelectorAll(selector).forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const apiKey = document.getElementById('api-key')?.value.trim();
+        if (!apiKey) { showApiKeyError(); return; }
+        const log = pastData.lessonLogs.find(l => l.logId === btn.dataset.logid);
+        if (!log) return;
+        runFn(apiKey, buildFormDataFromLog(log, students[currentIndex]), log.date, studentId, btn);
+      });
     });
-  });
+  }
 
-  // ── 次回授業案ボタン ──
-  historySec.querySelectorAll('.ai-lesson-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const apiKey = document.getElementById('api-key')?.value.trim();
-      if (!apiKey) { showApiKeyError(); return; }
-      const logId = btn.dataset.logid;
-      const log = pastData.lessonLogs.find(l => l.logId === logId);
-      if (!log) return;
-      runLessonPlanGeneration(
-        apiKey,
-        buildFormDataFromLog(log, students[currentIndex]),
-        log.date,
-        studentId,
-        btn
-      );
-    });
-  });
+  bindAiLogBtn('.ai-diag-btn',   runDiagnosisGeneration);
+  bindAiLogBtn('.ai-lesson-btn', runLessonPlanGeneration);
 
   // ── 削除ボタン ──
   historySec.querySelectorAll('.delete-log-btn').forEach(btn => {
@@ -1441,6 +1419,16 @@ function getVal(id) {
   return el ? el.value.trim() : '';
 }
 
+/* ===========================
+   短期目標テキスト生成ヘルパー（重複削減）
+=========================== */
+function formatShortTermGoals(goals) {
+  const filled = goals.filter(g => g.text);
+  return filled.length > 0
+    ? filled.map((g, i) => `${i + 1}. ${g.text}${g.deadline ? `（期限: ${g.deadline}）` : ''}`).join('\n')
+    : '未設定';
+}
+
 function buildFormData() {
   const compVal = getVal('f-comp');
 
@@ -1459,13 +1447,7 @@ function buildFormData() {
     }).join('\n\n');
   }
 
-  const filledGoals = collectGoalEntries().filter(g => g.text);
-  const shortTermGoalsText = filledGoals.length > 0
-    ? filledGoals.map((g, i) => {
-        const dl = g.deadline ? `（期限: ${g.deadline}）` : '';
-        return `${i + 1}. ${g.text}${dl}`;
-      }).join('\n')
-    : '未設定';
+  const shortTermGoalsText = formatShortTermGoals(collectGoalEntries());
 
   return {
     name:           getVal('f-name')     || '未入力',
@@ -1484,13 +1466,7 @@ function buildFormData() {
 
 // buildFormData() の直後に追加
 function buildFormDataFromLog(log, student) {
-  const shortTermGoals = (student.data.shortTermGoals || []).filter(g => g.text);
-  const shortTermGoalsText = shortTermGoals.length > 0
-    ? shortTermGoals.map((g, i) => {
-        const dl = g.deadline ? `（期限: ${g.deadline}）` : '';
-        return `${i + 1}. ${g.text}${dl}`;
-      }).join('\n')
-    : '未設定';
+  const shortTermGoalsText = formatShortTermGoals(student.data.shortTermGoals || []);
 
   const comp = parseComprehension(log.comprehension);
 
