@@ -1658,9 +1658,7 @@ ${recentLogs.length > 0
 - 今回の理解度・課題を踏まえ、次回の授業目標を1文で端的に示してください。
 - 複数の科目が含まれる場合は、重点指導ポイント、教材、宿題、つまずきやすい箇所を「【英語】〇〇」「【数学】〇〇」のように科目別に分けて明確に記載してください。
 - 重点指導ポイントは科目ごとに具体的に単元名・問題タイプを挙げてください。
-- 使用する教材・参考書・ページ数を具体的に記載してください。
 - 生徒がつまずきやすい箇所と講師がとるべき対処法を明記してください。
-- 次回授業前に出す宿題・自習課題を具体的に提示してください。
 - 指導のヒントとして、この生徒への効果的なアプローチを1〜2文で示してください。
 - 短期目標の期限が近い場合は、その達成を最優先した集中指導プランを示してください。
 `.trim();
@@ -1677,12 +1675,10 @@ ${recentLogs.length > 0
           properties: {
             objective:    { type: 'STRING' },
             keyPoints:    { type: 'ARRAY', items: { type: 'STRING' } },
-            materials:    { type: 'STRING' },
             pitfalls:     { type: 'ARRAY', items: { type: 'STRING' } },
-            homework:     { type: 'STRING' },
             teachingTips: { type: 'STRING' }
           },
-          required: ['objective', 'keyPoints', 'materials', 'pitfalls', 'homework', 'teachingTips']
+          required: ['objective', 'keyPoints', 'pitfalls', 'teachingTips']
         }
       }
     });
@@ -1968,22 +1964,10 @@ function renderLessonPlanResult(d, formData) {
       <ul class="diag-list">${keyPointsHTML}</ul>
     </div>
 
-    <!-- 教材・準備物 -->
-    <div class="result-card card-neutral">
-      <div class="card-label"><i class="ti ti-books"></i> 教材・準備物</div>
-      <div class="card-body">${escapeHtml(d.materials || '')}</div>
-    </div>
-
     <!-- つまずきポイントと対処法 -->
     <div class="result-card card-improvements">
       <div class="card-label"><i class="ti ti-alert-triangle"></i> つまずきやすい箇所と対処法</div>
       <ul class="diag-list">${pitfallsHTML}</ul>
-    </div>
-
-    <!-- 宿題・自習課題 -->
-    <div class="result-card card-neutral">
-      <div class="card-label"><i class="ti ti-home"></i> 宿題・自習課題</div>
-      <div class="card-body">${escapeHtml(d.homework || '')}</div>
     </div>
 
     <!-- 指導のヒント -->
@@ -2006,14 +1990,8 @@ ${d.objective || ''}
 ■ 重点指導ポイント
 ${(d.keyPoints || []).map(p => `・${p}`).join('\n')}
 
-■ 教材・準備物
-${d.materials || ''}
-
 ■ つまずきやすい箇所と対処法
 ${(d.pitfalls || []).map(p => `・${p}`).join('\n')}
-
-■ 宿題・自習課題
-${d.homework || ''}
 
 ■ 指導のヒント
 ${d.teachingTips || ''}
