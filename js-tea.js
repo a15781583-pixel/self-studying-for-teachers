@@ -209,7 +209,7 @@ function parseGeminiResponse(data) {
   const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!rawText) throw new Error('AIからのレスポンスを取得できませんでした。');
   try {
-    return JSON.parse(rawText);
+    return JSON.parse(rawText.trim());
   } catch (e) {
     throw new Error('AIレスポンスの解析に失敗しました。しばらくしてから再試行してください。');
   }
@@ -1060,6 +1060,11 @@ function renderHistoryView() {
   });
 
   // ── AI系ボタン共通ハンドラ ──
+  // 修正: renderHistoryView のスコープで生徒を固定する
+  // クリックイベントは描画後に評価されるため、students[currentIndex] をクロージャ内で
+  // 直接参照すると、クリック時点の currentIndex（別生徒）を参照するリスクがある。
+  // 描画時にキャプチャ済みの s を使うことで、意図した生徒のデータを確実に渡す。
+  const currentStudent = s; // ← 描画時にキャプチャ（s は L.914 で固定済み）
   function bindAiLogBtn(selector, runFn) {
     historySec.querySelectorAll(selector).forEach(btn => {
       btn.addEventListener('click', e => {
@@ -1068,7 +1073,7 @@ function renderHistoryView() {
         if (!apiKey) { showApiKeyError(); return; }
         const log = pastData.lessonLogs.find(l => l.logId === btn.dataset.logid);
         if (!log) return;
-        runFn(apiKey, buildFormDataFromLog(log, students[currentIndex]), log.date, studentId, btn);
+        runFn(apiKey, buildFormDataFromLog(log, currentStudent), log.date, studentId, btn);
       });
     });
   }
@@ -1487,6 +1492,7 @@ function buildFormDataFromLog(log, student) {
 
 // buildFormDataFromLog() の直後に追加
 async function runDiagnosisGeneration(apiKey, formData, lessonDate, studentId, triggerBtn) {
+  const capturedIndex = currentIndex; // Race Condition 対策: await 前に currentIndex をキャプチャ
   if (triggerBtn) triggerBtn.disabled = true;
   setLoadingText('AIが分析中です...', 'しばらくお待ちください');
   showState('state-loading');
@@ -1602,8 +1608,8 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehen
     const result = parseGeminiResponse(data);
     // ログは保存済み → saveOrUpdateLessonLog は呼ばない
     addAIDiagnostics(studentId, result);
-    students[currentIndex].result         = result;
-    students[currentIndex].lastResultType = 'diagnosis';
+    students[capturedIndex].result         = result;
+    students[capturedIndex].lastResultType = 'diagnosis';
     renderResult(result, formData);
     showState('state-result');
 
@@ -1618,6 +1624,7 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehen
 }
 
 async function runLessonPlanGeneration(apiKey, formData, lessonDate, studentId, triggerBtn) {
+  const capturedIndex = currentIndex; // Race Condition 対策: await 前に currentIndex をキャプチャ
   if (triggerBtn) triggerBtn.disabled = true;
   setLoadingText('次回授業案を作成中...', 'しばらくお待ちください');
   showState('state-loading');
@@ -1685,8 +1692,8 @@ ${recentLogs.length > 0
 
     const result = parseGeminiResponse(data);
     // ログは保存済み → saveOrUpdateLessonLog は呼ばない
-    students[currentIndex].lessonPlanResult = result;
-    students[currentIndex].lastResultType   = 'lessonplan';
+    students[capturedIndex].lessonPlanResult = result;
+    students[capturedIndex].lastResultType   = 'lessonplan';
     renderLessonPlanResult(result, formData);
     showState('state-result');
 
@@ -2490,8 +2497,30 @@ function injectSaveLogButton() {
   let btn = document.getElementById('save-log-btn');
   let cancelBtn = document.getElementById('cancel-edit-btn');
 
+  // gen-btn は位置参照と onclick 設定の両方で使うため if(!btn) ブロックの外で取得する
+  const genBtn = document.getElementById('gen-btn');
+
+  // ── gen-btn のクリックハンドラを設定する ──
+  // HTML 側に onclick 属性が存在しない場合でも診断生成が動作するよう JS 側で必ず登録する
+  if (genBtn) {
+    genBtn.onclick = () => {
+      const apiKey = document.getElementById('api-key')?.value.trim();
+      if (!apiKey) { showApiKeyError(); return; }
+
+      const formData   = buildFormData();
+      const lessonDate = getVal('lesson-date') || getLocalDate();
+
+      if (!formData.name || formData.name === '未入力') {
+        showToast('生徒名を入力してください', 'error');
+        return;
+      }
+
+      const studentId = 'std_' + students[currentIndex].id;
+      runDiagnosisGeneration(apiKey, formData, lessonDate, studentId, genBtn);
+    };
+  }
+
   if (!btn) {
-    const genBtn = document.getElementById('gen-btn');
     if (!genBtn) return;
 
     btn = document.createElement('button');
