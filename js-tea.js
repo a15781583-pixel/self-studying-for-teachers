@@ -85,9 +85,9 @@ function addLessonLog(studentId, logData) {
 // 4. 生成されたAI診断結果を履歴に追加して保存する関数
 function addAIDiagnostics(studentId, aiResult) {
   const newDiag = {
+    ...aiResult,
     diagId: `diag_${crypto.randomUUID()}`,
     date: getLocalDate(),
-    ...aiResult
   };
   return mutateStudentData(studentId, d => d.aiDiagnostics.push(newDiag));
 }
@@ -104,10 +104,23 @@ function updateLessonLog(studentId, logId, updatedFields) {
   const data = getStudentData(studentId);
   const idx  = data.lessonLogs.findIndex(l => l.logId === logId);
   if (idx === -1) return data;
+
+  // updatedFields.comprehension が未入力・空・null の場合は既存の理解度を保持する。
+  // parseComprehension は '未入力' / null / '' に対して 0 を返すため、
+  // 無条件に呼び出すと既存ログの理解度データが消えてしまう。
+  const existing = data.lessonLogs[idx];
+  const hasComprehension =
+    updatedFields.comprehension != null &&
+    updatedFields.comprehension !== '' &&
+    updatedFields.comprehension !== '未入力';
+  const comprehension = hasComprehension
+    ? parseComprehension(updatedFields.comprehension)
+    : existing.comprehension;
+
   data.lessonLogs[idx] = {
-    ...data.lessonLogs[idx],   // logId などを保持
+    ...existing,        // logId などを保持
     ...updatedFields,
-    comprehension: parseComprehension(updatedFields.comprehension),
+    comprehension,      // 条件分岐済みの値で確実に上書き
   };
   saveStudentData(data);
   return data;
@@ -130,7 +143,15 @@ function buildLessonLogPayload(formData, lessonDate) {
 function saveOrUpdateLessonLog(studentId, formData, lessonDate) {
   const payload = buildLessonLogPayload(formData, lessonDate);
   if (_editingLogId) {
-    updateLessonLog(studentId, _editingLogId, payload);
+    // 修正⑦: updateLessonLog を try-catch で保護。
+    // 失敗時は _editingLogId / _editingLog をクリアせず編集状態を維持したまま
+    // エラーを呼び出し元へ再スローする（成功時のみクリアする）。
+    try {
+      updateLessonLog(studentId, _editingLogId, payload);
+    } catch (err) {
+      console.error('授業記録の更新に失敗しました:', err);
+      throw err;
+    }
     _editingLogId = null;
     _editingLog   = null;
     return 'updated';
@@ -1713,6 +1734,12 @@ function resetLessonContentField() {
     if (el) el.value = '';
   });
   updateScaleUI(''); // 理解度スケールボタンの選択状態もリセット
+
+  // 担当科目チップのリセット
+  selectedSubjects.clear();
+  document.querySelectorAll('#subjects .chip').forEach(chip => {
+    chip.classList.toggle('selected', selectedSubjects.has(chip.dataset.val));
+  });
 }
 
 function showState(id) {
@@ -2255,38 +2282,49 @@ function importData(file) {
   reader.onload = e => {
     try {
       const parsed = JSON.parse(e.target.result);
+      const hasTabs = Array.isArray(parsed.tabs) && parsed.tabs.length > 0;
 
-      // ① localStorageへ生徒記録を保存
+      // ① タブ一覧も上書きするか確認する（studentRecords への書き込みより前に判定）
+      //    キャンセルした場合はここで処理を打ち切り、以降の書き込みを一切行わない
+      let overwriteTabs = false;
+      if (hasTabs) {
+        overwriteTabs = confirm('タブ（生徒一覧）も上書きしますか？\nキャンセルするとインポートを中止します。');
+        if (!overwriteTabs) {
+          showToast('インポートをキャンセルしました');
+          return;
+        }
+      }
+
+      // ② localStorageへ生徒記録を保存
+      //    ①でキャンセルされていた場合は return 済みのためここには到達しない
       if (parsed.studentRecords && typeof parsed.studentRecords === 'object') {
         Object.entries(parsed.studentRecords).forEach(([sid, record]) => {
           saveStudentData({ ...record, studentId: sid });
         });
       }
 
-      // ② タブ一覧も上書きするか確認
-      if (Array.isArray(parsed.tabs) && parsed.tabs.length > 0) {
-        if (confirm('タブ（生徒一覧）も上書きしますか？\nキャンセルすると学習記録のみ復元されます。')) {
-          students = parsed.tabs.map(t => ({
-            ...createStudent(),
-            id:               t.id           || Date.now() + Math.random(),
-            tabName:          t.tabName      || t.defaultName || '生徒',
-            defaultName:      t.defaultName  || '生徒',
-            data:             t.data         || {},
-            result:           null,
-            lessonPlanResult: null,
-            lastResultType:   'diagnosis',
-            mode:             'profile',
-            modeInitialized:  false,
-          }));
-          // ③ studentCounter リセット（initStudents と同じロジック）
-          // createStudent() の呼び出し回数分だけ余計に加算されたカウンタを
-          // インポートデータの最大番号 + 1 に揃え直す
-          resetStudentCounter();
-          currentIndex = 0;
-          saveStudentsTabs(); // インポートしたタブ一覧を永続化
-          renderTabs();
-          restoreForm(students[currentIndex]);
-        }
+      // ③ タブ一覧を上書き（①で確認済みの場合のみ実行）
+      if (overwriteTabs) {
+        students = parsed.tabs.map(t => ({
+          ...createStudent(),
+          id:               t.id           || Date.now() + Math.random(),
+          tabName:          t.tabName      || t.defaultName || '生徒',
+          defaultName:      t.defaultName  || '生徒',
+          data:             t.data         || {},
+          result:           null,
+          lessonPlanResult: null,
+          lastResultType:   'diagnosis',
+          mode:             'profile',
+          modeInitialized:  false,
+        }));
+        // ④ studentCounter リセット（initStudents と同じロジック）
+        // createStudent() の呼び出し回数分だけ余計に加算されたカウンタを
+        // インポートデータの最大番号 + 1 に揃え直す
+        resetStudentCounter();
+        currentIndex = 0;
+        saveStudentsTabs(); // インポートしたタブ一覧を永続化
+        renderTabs();
+        restoreForm(students[currentIndex]);
       }
 
       showToast('インポートが完了しました ✓');
@@ -2519,6 +2557,18 @@ function injectSaveLogButton() {
       }
 
       const studentId = 'std_' + students[currentIndex].id;
+
+      // バグ⑤修正: 診断実行前に授業ログを保存する
+      // 「授業記録のみ保存する」ボタンの押し忘れでログが消失するのを防ぐため、
+      // runDiagnosisGeneration を呼ぶ前に必ず saveOrUpdateLessonLog を実行する。
+      // （runDiagnosisGeneration 側は「ログは保存済み」前提で実装されているため、
+      //   ここで保存しておかないと診断結果だけが残りログが残らない状態になる）
+      const action = saveOrUpdateLessonLog(studentId, formData, lessonDate);
+      showToast(action === 'updated' ? '授業記録を更新しました ✓' : '授業記録を保存しました ✓');
+      // saveOrUpdateLessonLog 内で _editingLogId がクリアされるため、
+      // 保存/更新ボタンの表示（編集中ラベル・キャンセルボタン）を最新状態に同期する
+      updateEditModeUI();
+
       runDiagnosisGeneration(apiKey, formData, lessonDate, studentId, genBtn);
     };
   }
