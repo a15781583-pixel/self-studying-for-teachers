@@ -1708,8 +1708,11 @@ ${recentLogs.length > 0
 }
 
 function resetLessonContentField() {
-  const el = document.getElementById('f-lesson-content');
-  if (el) el.value = '';
+  ['f-lesson-content', 'f-comp', 'f-attitude', 'f-notes'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  updateScaleUI(''); // 理解度スケールボタンの選択状態もリセット
 }
 
 function showState(id) {
@@ -2653,6 +2656,23 @@ document.addEventListener('DOMContentLoaded', () => {
     list.appendChild(createGoalEntryElement(createShortTermGoalEntry(), newIdx));
 
     scrollPanelToBottom();
+  });
+
+  // ── テスト結果の変更を即時永続化 ──
+  // change を追加しているのは、test-grade-select（学年セレクト）と
+  // test-date-input（日付入力）がブラウザによっては input だけでは
+  // 捕捉できないケースがあるため。
+  ['input', 'change'].forEach(evt => {
+    document.getElementById('test-list')?.addEventListener(evt, () => {
+      students[currentIndex].data.tests = collectTestEntries();
+      saveStudentsTabs();
+    });
+  });
+
+  // ── 短期目標の変更を即時永続化 ──
+  document.getElementById('short-goal-list')?.addEventListener('input', () => {
+    students[currentIndex].data.shortTermGoals = collectGoalEntries();
+    saveStudentsTabs();
   });
 
   /* ===========================
