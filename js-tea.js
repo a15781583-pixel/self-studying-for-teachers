@@ -249,6 +249,18 @@ function copyToClipboard(text, btnId, originalHTML) {
 }
 
 /* ===========================
+   コピーボタン共通バインドヘルパー
+   - originalHTML をバインド時に DOM から自動取得するため、
+     ハードコード文字列と HTML 側の表記がズレるリスクを解消
+=========================== */
+function bindCopyButton(id, textBuilder) {
+  const btn = document.getElementById(id);
+  if (!btn) return;
+  const originalHTML = btn.innerHTML;
+  btn.addEventListener('click', () => copyToClipboard(textBuilder(), id, originalHTML));
+}
+
+/* ===========================
    フォームフィールド一覧
 =========================== */
 const FIELD_IDS = [
@@ -1512,12 +1524,42 @@ function buildFormDataFromLog(log, student) {
 }
 
 // buildFormDataFromLog() の直後に追加
-async function runDiagnosisGeneration(apiKey, formData, lessonDate, studentId, triggerBtn) {
+// AI生成処理（診断／次回授業案）の共通ラッパー
+// capturedIndex取得→ボタン無効化→ローディング表示→fetchGeminiWithRetry→
+// parseGeminiResponse→エラー処理→finallyでボタン復帰、という共通の骨格をここに集約する。
+// プロンプト組み立て・スキーマ・成功時処理だけを呼び出し側から設定値として渡す。
+async function runAiGeneration(apiKey, triggerBtn, { loadingTitle, buildPrompt, schema, maxOutputTokens, errorLabel, onSuccess }) {
   const capturedIndex = currentIndex; // Race Condition 対策: await 前に currentIndex をキャプチャ
   if (triggerBtn) triggerBtn.disabled = true;
-  setLoadingText('AIが分析中です...', 'しばらくお待ちください');
+  setLoadingText(loadingTitle);
   showState('state-loading');
 
+  try {
+    const data = await fetchGeminiWithRetry(apiKey, {
+      contents: [{ parts: [{ text: buildPrompt() }] }],
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens,
+        responseMimeType: 'application/json',
+        responseSchema: schema
+      }
+    });
+
+    const result = parseGeminiResponse(data);
+    onSuccess(result, capturedIndex);
+    showState('state-result');
+
+  } catch (err) {
+    showInlineError(
+      `${errorLabel}に失敗しました。APIキーとネットワーク接続を確認してください。<br>` +
+      `<small>${escapeHtml(err.message)}</small>`
+    );
+  } finally {
+    if (triggerBtn) triggerBtn.disabled = false;
+  }
+}
+
+async function runDiagnosisGeneration(apiKey, formData, lessonDate, studentId, triggerBtn) {
   const pastData     = getStudentData(studentId);
   const previousLogs = pastData ? pastData.lessonLogs.slice(-10) : [];
   const lastDiag     = (pastData && pastData.aiDiagnostics.length > 0)
@@ -1543,7 +1585,7 @@ async function runDiagnosisGeneration(apiKey, formData, lessonDate, studentId, t
       })()
     : '初回診断のため比較なし';
 
-  const prompt = `
+  const buildPrompt = () => `
 あなたはプロの教育コンサルタント・塾講師です。
 生徒の基本情報、過去の学習変化、今回の授業内容を踏まえ、保護者も納得する高品質な診断レポートを作成してください。
 
@@ -1587,73 +1629,55 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehen
 - 週間プラン・月間プランは、科目ごとのバランスを考慮し、短期目標の達成ステップと長期目標への道筋を構成してください。
 `.trim();
 
-  try {
-    const data = await fetchGeminiWithRetry(apiKey, {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 8192,
-        responseMimeType: 'application/json',
-        responseSchema: {
+  await runAiGeneration(apiKey, triggerBtn, {
+    loadingTitle: 'AIが分析中です...',
+    buildPrompt,
+    maxOutputTokens: 8192,
+    errorLabel: '診断の生成',
+    schema: {
+      type: 'OBJECT',
+      properties: {
+        overallScore:    { type: 'INTEGER', minimum: 1, maximum: 5 },
+        overallComment:  { type: 'STRING' },
+        strengths:       { type: 'ARRAY', items: { type: 'STRING' } },
+        improvements:    { type: 'ARRAY', items: { type: 'STRING' } },
+        weeklyPlan:      { type: 'STRING' },
+        monthlyPlan:     { type: 'STRING' },
+        nextLessonPlan: {
           type: 'OBJECT',
           properties: {
-            overallScore:    { type: 'INTEGER', minimum: 1, maximum: 5 },
-            overallComment:  { type: 'STRING' },
-            strengths:       { type: 'ARRAY', items: { type: 'STRING' } },
-            improvements:    { type: 'ARRAY', items: { type: 'STRING' } },
-            weeklyPlan:      { type: 'STRING' },
-            monthlyPlan:     { type: 'STRING' },
-            nextLessonPlan: {
-              type: 'OBJECT',
-              properties: {
-                objective: { type: 'STRING' },
-                keyPoints: { type: 'ARRAY', items: { type: 'STRING' } },
-                materials: { type: 'STRING' },
-                pitfalls:  { type: 'ARRAY', items: { type: 'STRING' } }
-              },
-              required: ['objective', 'keyPoints', 'materials', 'pitfalls']
-            },
-            instructorAdvice: { type: 'STRING' },
-            parentMessage:    { type: 'STRING' },
-            urgentAction:     { type: 'STRING' }
+            objective: { type: 'STRING' },
+            keyPoints: { type: 'ARRAY', items: { type: 'STRING' } },
+            materials: { type: 'STRING' },
+            pitfalls:  { type: 'ARRAY', items: { type: 'STRING' } }
           },
-          required: [
-            'overallScore', 'overallComment', 'strengths', 'improvements',
-            'weeklyPlan', 'monthlyPlan', 'nextLessonPlan',
-            'instructorAdvice', 'parentMessage', 'urgentAction'
-          ]
-        }
-      }
-    });
-
-    const result = parseGeminiResponse(data);
-    // ログは保存済み → saveOrUpdateLessonLog は呼ばない
-    addAIDiagnostics(studentId, result);
-    students[capturedIndex].result         = result;
-    students[capturedIndex].lastResultType = 'diagnosis';
-    renderResult(result, formData);
-    showState('state-result');
-
-  } catch (err) {
-    showInlineError(
-      '診断の生成に失敗しました。APIキーとネットワーク接続を確認してください。<br>' +
-      `<small>${escapeHtml(err.message)}</small>`
-    );
-  } finally {
-    if (triggerBtn) triggerBtn.disabled = false;
-  }
+          required: ['objective', 'keyPoints', 'materials', 'pitfalls']
+        },
+        instructorAdvice: { type: 'STRING' },
+        parentMessage:    { type: 'STRING' },
+        urgentAction:     { type: 'STRING' }
+      },
+      required: [
+        'overallScore', 'overallComment', 'strengths', 'improvements',
+        'weeklyPlan', 'monthlyPlan', 'nextLessonPlan',
+        'instructorAdvice', 'parentMessage', 'urgentAction'
+      ]
+    },
+    onSuccess: (result, capturedIndex) => {
+      // ログは保存済み → saveOrUpdateLessonLog は呼ばない
+      addAIDiagnostics(studentId, result);
+      students[capturedIndex].result         = result;
+      students[capturedIndex].lastResultType = 'diagnosis';
+      renderResult(result, formData);
+    }
+  });
 }
 
 async function runLessonPlanGeneration(apiKey, formData, lessonDate, studentId, triggerBtn) {
-  const capturedIndex = currentIndex; // Race Condition 対策: await 前に currentIndex をキャプチャ
-  if (triggerBtn) triggerBtn.disabled = true;
-  setLoadingText('次回授業案を作成中...', 'しばらくお待ちください');
-  showState('state-loading');
-
   const pastData   = getStudentData(studentId);
   const recentLogs = pastData ? pastData.lessonLogs.slice(-5) : [];
 
-  const prompt = `
+  const buildPrompt = () => `
 あなたはベテラン塾講師です。
 以下の授業履歴と今回の指導記録をもとに、次回授業の具体的な指導案を作成してください。
 総合診断・保護者向けコメント・月間計画は不要です。授業計画のみに特化して回答してください。
@@ -1691,41 +1715,28 @@ ${recentLogs.length > 0
 - 短期目標の期限が近い場合は、その達成を最優先した集中指導プランを示してください。
 `.trim();
 
-  try {
-    const data = await fetchGeminiWithRetry(apiKey, {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 2048,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'OBJECT',
-          properties: {
-            objective:    { type: 'STRING' },
-            keyPoints:    { type: 'ARRAY', items: { type: 'STRING' } },
-            pitfalls:     { type: 'ARRAY', items: { type: 'STRING' } },
-            teachingTips: { type: 'STRING' }
-          },
-          required: ['objective', 'keyPoints', 'pitfalls', 'teachingTips']
-        }
-      }
-    });
-
-    const result = parseGeminiResponse(data);
-    // ログは保存済み → saveOrUpdateLessonLog は呼ばない
-    students[capturedIndex].lessonPlanResult = result;
-    students[capturedIndex].lastResultType   = 'lessonplan';
-    renderLessonPlanResult(result, formData);
-    showState('state-result');
-
-  } catch (err) {
-    showInlineError(
-      '次回授業案の生成に失敗しました。APIキーとネットワーク接続を確認してください。<br>' +
-      `<small>${escapeHtml(err.message)}</small>`
-    );
-  } finally {
-    if (triggerBtn) triggerBtn.disabled = false;
-  }
+  await runAiGeneration(apiKey, triggerBtn, {
+    loadingTitle: '次回授業案を作成中...',
+    buildPrompt,
+    maxOutputTokens: 2048,
+    errorLabel: '次回授業案の生成',
+    schema: {
+      type: 'OBJECT',
+      properties: {
+        objective:    { type: 'STRING' },
+        keyPoints:    { type: 'ARRAY', items: { type: 'STRING' } },
+        pitfalls:     { type: 'ARRAY', items: { type: 'STRING' } },
+        teachingTips: { type: 'STRING' }
+      },
+      required: ['objective', 'keyPoints', 'pitfalls', 'teachingTips']
+    },
+    onSuccess: (result, capturedIndex) => {
+      // ログは保存済み → saveOrUpdateLessonLog は呼ばない
+      students[capturedIndex].lessonPlanResult = result;
+      students[capturedIndex].lastResultType   = 'lessonplan';
+      renderLessonPlanResult(result, formData);
+    }
+  });
 }
 
 function resetLessonContentField() {
@@ -2017,8 +2028,7 @@ function renderLessonPlanResult(d, formData) {
   document.getElementById('state-result').innerHTML = html;
 
   // 授業案コピーボタン
-  document.getElementById('lesson-copy-btn').addEventListener('click', () => {
-    const fullText = `
+  bindCopyButton('lesson-copy-btn', () => `
 【次回授業案】${formData.name} さん（${subLine}）
 
 ■ 授業目標
@@ -2032,10 +2042,7 @@ ${(d.pitfalls || []).map(p => `・${p}`).join('\n')}
 
 ■ 指導のヒント
 ${d.teachingTips || ''}
-`.trim();
-
-    copyToClipboard(fullText, 'lesson-copy-btn', '<i class="ti ti-copy"></i> 授業案をコピー');
-  });
+`.trim());
 
   // 診断レポートに切り替えるボタン（診断結果が存在する場合のみ表示）
   const switchBtn = document.getElementById('switch-to-diagnosis-btn');
@@ -2175,8 +2182,7 @@ function renderResult(d, formData) {
   });
 
   // 2. レポート全体テキストコピー
-  document.getElementById('copy-all-btn').addEventListener('click', () => {
-    const fullText = `
+  bindCopyButton('copy-all-btn', () => `
 【生徒診断レポート】${formData.name} さん（${subLine}）
 総合評価: ${d.overallScore}/5
 
@@ -2211,16 +2217,10 @@ ${d.instructorAdvice || ''}
 
 ■ 保護者向けコメント
 ${d.parentMessage || ''}
-`.trim();
-
-    copyToClipboard(fullText, 'copy-all-btn', '<i class="ti ti-copy"></i> レポート全体をコピー');
-  });
+`.trim());
 
   // 3. 保護者用コメントコピーボタン
-  document.getElementById('copy-btn').addEventListener('click', () => {
-    const text = document.getElementById('parent-text').innerText;
-    copyToClipboard(text, 'copy-btn', '<i class="ti ti-copy"></i> 保護者コメントのみコピー');
-  });
+  bindCopyButton('copy-btn', () => document.getElementById('parent-text').innerText);
 
   // 4. 次回授業案に切り替えるボタン（授業案が存在する場合のみ表示）
   const switchToLessonBtn = document.getElementById('switch-to-lesson-btn');
