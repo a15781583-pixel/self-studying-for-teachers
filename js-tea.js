@@ -1,21 +1,14 @@
-/* ===========================
-   スター文字列生成ユーティリティ（重複削減）
-=========================== */
 function renderStars(rawScore) {
   const score = Math.min(Math.max(Number(rawScore) || 0, 0), 5);
   return { score, stars: '★'.repeat(score) + '☆'.repeat(5 - score) };
 }
 
-/* ===========================
-   日付取得のヘルパー関数（新規追加）
-=========================== */
 function getLocalDate() {
   const d = new Date();
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
   return d.toISOString().split('T')[0];
 }
 
-// 1. 生徒データの読み込み（なければ初期データを生成）
 function createDefaultStudentData(studentId) {
   const today = getLocalDate();
   return {
@@ -47,7 +40,6 @@ function getStudentData(studentId) {
   }
 }  
 
-// 2. 生徒データの保存
 function saveStudentData(studentData) {
   if (!studentData || !studentData.studentId) return;
   // パースエラー由来の空データが流れ込んでも既存データを上書きしない
@@ -59,7 +51,6 @@ function saveStudentData(studentData) {
   localStorage.setItem(key, JSON.stringify(studentData));
 }
 
-// get → mutate → save パターンの共通ヘルパー
 function mutateStudentData(studentId, fn) {
   const data = getStudentData(studentId);
   fn(data);
@@ -67,7 +58,6 @@ function mutateStudentData(studentId, fn) {
   return data;
 }
 
-// 3. 授業ログ（日々の指導レポート）を追加して保存する関数
 function addLessonLog(studentId, logData) {
   const newLog = {
     logId: `log_${crypto.randomUUID()}`,
@@ -82,7 +72,6 @@ function addLessonLog(studentId, logData) {
   return mutateStudentData(studentId, d => d.lessonLogs.push(newLog));
 }
 
-// 4. 生成されたAI診断結果を履歴に追加して保存する関数
 function addAIDiagnostics(studentId, aiResult) {
   const newDiag = {
     ...aiResult,
@@ -92,14 +81,12 @@ function addAIDiagnostics(studentId, aiResult) {
   return mutateStudentData(studentId, d => d.aiDiagnostics.push(newDiag));
 }
 
-// 5. 授業ログを削除する関数
 function deleteLessonLog(studentId, logId) {
   return mutateStudentData(studentId, d => {
     d.lessonLogs = d.lessonLogs.filter(l => l.logId !== logId);
   });
 }
 
-// 6. 授業ログを更新する関数
 function updateLessonLog(studentId, logId, updatedFields) {
   const data = getStudentData(studentId);
   const idx  = data.lessonLogs.findIndex(l => l.logId === logId);
@@ -126,7 +113,6 @@ function updateLessonLog(studentId, logId, updatedFields) {
   return data;
 }
 
-// 7. 授業ログのペイロードを生成するヘルパー関数
 function buildLessonLogPayload(formData, lessonDate) {
   return {
     date:            lessonDate,
@@ -139,12 +125,11 @@ function buildLessonLogPayload(formData, lessonDate) {
   };
 }
 
-// 8. 授業ログを新規追加 or 更新する共通ヘルパー関数
 function saveOrUpdateLessonLog(studentId, formData, lessonDate) {
   const payload = buildLessonLogPayload(formData, lessonDate);
   if (_editingLogId) {
     // 修正⑦: updateLessonLog を try-catch で保護。
-    // 失敗時は _editingLogId / _editingLog をクリアせず編集状態を維持したまま
+    // 失敗時は _editingLogId をクリアせず編集状態を維持したまま
     // エラーを呼び出し元へ再スローする（成功時のみクリアする）。
     try {
       updateLessonLog(studentId, _editingLogId, payload);
@@ -153,7 +138,6 @@ function saveOrUpdateLessonLog(studentId, formData, lessonDate) {
       throw err;
     }
     _editingLogId = null;
-    _editingLog   = null;
     return 'updated';
   } else {
     addLessonLog(studentId, payload);
@@ -161,25 +145,13 @@ function saveOrUpdateLessonLog(studentId, formData, lessonDate) {
   }
 }
 
-/* ===========================
-   使用モデル
-   gemini-3.6-flash（無料枠あり）
-   ※ Google AI Studio で取得した APIキーを使用
-   https://aistudio.google.com/app/apikey
-=========================== */
 const GEMINI_MODEL    = 'gemini-3.6-flash';
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent`;
 
-/* ===========================
-   localStorage キー定数
-=========================== */
 const studentKey         = id => `student_data_${id}`;
 const STUDENTS_TABS_KEY  = 'app_students_tabs';
 const STUDENTS_INDEX_KEY = 'app_students_index';
 
-/* ===========================
-   API通信用ヘルパー関数（自動リトライ機能付き）
-=========================== */
 async function fetchGeminiWithRetry(apiKey, requestBody, maxRetries = 3) {
   for (let i = 0; i < maxRetries; i++) {
     try {
@@ -209,20 +181,15 @@ async function fetchGeminiWithRetry(apiKey, requestBody, maxRetries = 3) {
         throw error;
       }
 
-      // 成功した場合はJSONを返す
       return await response.json();
       
     } catch (err) {
-      // isFatalフラグがある、または上限回数に達した場合はそのまま投げる
       if (err.isFatal || i === maxRetries - 1) throw err;
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
 }
 
-/* ===========================
-   Geminiレスポンスのパースヘルパー
-=========================== */
 function parseGeminiResponse(data) {
   if (data.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
     throw new Error('レスポンスがトークン上限に達しました。入力情報を減らすか、しばらく時間をおいて再試行してください。');
@@ -236,9 +203,6 @@ function parseGeminiResponse(data) {
   }
 }
 
-/* ===========================
-   クリップボードコピー共通ヘルパー
-=========================== */
 function copyToClipboard(text, btnId, originalHTML) {
   navigator.clipboard.writeText(text).then(() => {
     const btn = document.getElementById(btnId);
@@ -260,9 +224,6 @@ function bindCopyButton(id, textBuilder) {
   btn.addEventListener('click', () => copyToClipboard(textBuilder(), id, originalHTML));
 }
 
-/* ===========================
-   フォームフィールド一覧
-=========================== */
 const FIELD_IDS = [
   'f-name', 'f-grade',
   'lesson-date',
@@ -272,25 +233,16 @@ const FIELD_IDS = [
   'f-lesson-content',
 ];
 
-/* ===========================
-   テスト種類の入力サジェスト候補
-=========================== */
 const TEST_TYPE_SUGGESTIONS = [
   '定期テスト', '実力テスト', '全統記述模試', '全統共通テスト模試', 
   '進研模試', '駿台模試', '駿台ベネッセ共通テスト模試', '全国統一高校生テスト', '全国統一中学生テスト', '共通テスト本番レベル模試', '冠模試', '英検', '漢検', '数検'
 ];
 
-/* ===========================
-   生徒データ管理
-=========================== */
-/** 理解度グラフの最後に渡したログを保持（リサイズ再描画用） */
 let _chartLogs = null;
 /** リサイズタイマーID（デバウンス用） */
 let _chartResizeTimer = null;
 
 let _editingLogId  = null;
-let _editingLog    = null;  // バグ②修正: 編集中ログオブジェクトを保持し unit を引き継ぐ
-
 let studentCounter = 1;
 let currentIndex   = 0;
 let students       = [];
@@ -335,10 +287,6 @@ function createStudent() {
     modeInitialized:  false,         // 初回タブ表示時に detectMode() で上書きするフラグ
   };
 }
-
-/* ===========================
-   タブ・基本情報の永続化
-=========================== */
 
 /**
  * students 配列と currentIndex を localStorage に保存する。
@@ -398,14 +346,9 @@ function initStudents() {
       console.warn('タブ情報の復元に失敗しました:', e);
     }
   }
-  // 保存データなし → 初期状態を生成
   students     = [createStudent()];
   currentIndex = 0;
 }
-
-/* ===========================
-   Step 1: モード管理（フロー分岐）
-=========================== */
 
 /**
  * localStorageの授業ログ有無でモードを自動判別する。
@@ -765,7 +708,6 @@ function initSections() {
   if (!panel || panel.hasAttribute('data-sections-init')) return;
   panel.setAttribute('data-sections-init', '1');
 
-  // 履歴セクションを動的に追加
   if (!document.getElementById('section-history')) {
     const historySec = document.createElement('div');
     historySec.id = 'section-history';
@@ -840,7 +782,6 @@ function switchMode(mode) {
     // 編集状態を解除し、フォームを生徒の基本データに戻してから保存する
     // （ログ編集中のデータ date/comp/attitude/notes が student.data に上書きされるのを防ぐ）
     _editingLogId = null;
-    _editingLog   = null;
     restoreForm(students[currentIndex]);
   }
   saveCurrentForm();
@@ -867,7 +808,6 @@ function parseUnitToTestEntries(unitText) {
     return [createTestEntry()];
   }
 
-  // buildFormData が join('\n\n') したブロック単位で分割する
   const blocks  = unitText.split(/\n\n+/);
   const entries = blocks.map(block => {
     const trimmed = block.trim();
@@ -876,7 +816,6 @@ function parseUnitToTestEntries(unitText) {
     const lines     = trimmed.split('\n');
     const firstLine = lines[0] || '';
 
-    // ヘッダー行 "[type / 対象: grade / 実施日: date]" をパース
     const headerMatch = firstLine.match(/^\[(.+)\]$/);
     let type = '', grade = '', date = '';
 
@@ -887,7 +826,6 @@ function parseUnitToTestEntries(unitText) {
         } else if (part.startsWith('実施日:')) {
           date = part.slice(4).trim();
         } else if (!type && !/^テスト\d+$/.test(part)) {
-          // "テスト1" 等のフォールバックラベルは type として扱わない
           type = part;
         }
       });
@@ -895,38 +833,36 @@ function parseUnitToTestEntries(unitText) {
       return { type, grade, date, scores };
     }
 
-    // ヘッダーなし → ブロック全体を scores として扱う
     return { type: '', grade: '', date: '', scores: trimmed };
   }).filter(Boolean);
 
   return entries.length > 0 ? entries : [createTestEntry()];
 }
 
-function loadLogIntoReportForm(log) {
-  // 授業日
-  const dateEl = document.getElementById('lesson-date');
-  if (dateEl) dateEl.value = log.date || '';
-
-  // 担当科目チップ
-  selectedSubjects.clear();
-  (log.subject || '').split(/[、,，]/).map(s => s.trim()).filter(Boolean)
-    .forEach(v => selectedSubjects.add(v));
+function syncSubjectChips() {
   document.querySelectorAll('#subjects .chip').forEach(chip => {
     chip.classList.toggle('selected', selectedSubjects.has(chip.dataset.val));
   });
+}
 
-  // 理解度スケール
+function loadLogIntoReportForm(log) {
+  const dateEl = document.getElementById('lesson-date');
+  if (dateEl) dateEl.value = log.date || '';
+
+  selectedSubjects.clear();
+  (log.subject || '').split(/[、,，]/).map(s => s.trim()).filter(Boolean)
+    .forEach(v => selectedSubjects.add(v));
+  syncSubjectChips();
+
   const comp = parseComprehension(log.comprehension);
   const compVal = comp ? String(comp) : '';
   const compEl = document.getElementById('f-comp');
   if (compEl) compEl.value = compVal;
   updateScaleUI(compVal);
 
-  // 学習態度
   const attitudeEl = document.getElementById('f-attitude');
   if (attitudeEl) attitudeEl.value = log.attitude || '';
 
-  // 講師メモ
   const notesEl = document.getElementById('f-notes');
   if (notesEl) notesEl.value = log.instructorNotes || '';
 
@@ -939,7 +875,6 @@ function loadLogIntoReportForm(log) {
   if (lessonContentEl) lessonContentEl.value = log.lessonContent || '';
 }
 
-/** 履歴セクションに localStorage の過去データを描画する */
 function renderHistoryView() {
   const historySec = document.getElementById('section-history');
   if (!historySec) return;
@@ -963,7 +898,6 @@ function renderHistoryView() {
 
   let html = '';
 
-  // ① 直近AI診断バッジ
   if (pastData.aiDiagnostics.length > 0) {
     const lastDiag = pastData.aiDiagnostics[pastData.aiDiagnostics.length - 1];
     const prevDiag = pastData.aiDiagnostics.length > 1
@@ -991,7 +925,6 @@ function renderHistoryView() {
     `;
   }
 
-  // ② 理解度推移グラフ（Canvas）
   const logsWithComp = pastData.lessonLogs.filter(l =>
     parseComprehension(l.comprehension) > 0
   );
@@ -1004,7 +937,6 @@ function renderHistoryView() {
     `;
   }
 
-  // ③ 授業ログ（アコーディオン）
   if (pastData.lessonLogs.length > 0) {
     html += '<h3 class="history-section-title"><i class="ti ti-book"></i> 授業ログ</h3>';
     html += '<div class="accordion-list">';
@@ -1057,7 +989,6 @@ function renderHistoryView() {
     html += '</div>';
   }
 
-  // ④ AI診断履歴（アコーディオン）
   if (pastData.aiDiagnostics.length > 0) {
     html += '<h3 class="history-section-title"><i class="ti ti-sparkles"></i> AI診断履歴</h3>';
     html += '<div class="accordion-list">';
@@ -1084,7 +1015,6 @@ function renderHistoryView() {
 
   historySec.innerHTML = html;
 
-  // アコーディオン開閉（ログ操作ボタンのクリックは除外）
   historySec.querySelectorAll('.accordion-header').forEach(header => {
     header.addEventListener('click', (e) => {
       if (e.target.closest('.log-action-btn')) return;
@@ -1114,7 +1044,6 @@ function renderHistoryView() {
   bindAiLogBtn('.ai-diag-btn',   runDiagnosisGeneration);
   bindAiLogBtn('.ai-lesson-btn', runLessonPlanGeneration);
 
-  // ── 削除ボタン ──
   historySec.querySelectorAll('.delete-log-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1126,7 +1055,6 @@ function renderHistoryView() {
       }
     });
   });
-  // ── 編集ボタン ──
   historySec.querySelectorAll('.edit-log-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1139,7 +1067,6 @@ function renderHistoryView() {
       // ※ switchMode を先に呼ぶことで saveCurrentForm() が実行される時点では
       //   DOM にはまだログ値が入っておらず、プロフィールデータの汚染を防ぐ（バグ④修正）
       _editingLogId = logId;
-      _editingLog   = log;   // バグ②修正: unit引き継ぎ用にログオブジェクトを保持
       switchMode('report');
       loadLogIntoReportForm(log);
       showToast('授業記録を編集中です。');
@@ -1147,13 +1074,11 @@ function renderHistoryView() {
   });
 
 
-  // Canvas グラフ描画
   if (logsWithComp.length > 0) {
     drawComprehensionChart(logsWithComp);
   }
 }
 
-/** 理解度の値を数値にパースする（"7 / 10" → 7 など） */
 function parseComprehension(val) {
   if (val == null || val === '' || val === '未入力') return 0;
   if (typeof val === 'number') return val;
@@ -1161,12 +1086,10 @@ function parseComprehension(val) {
   return m ? Number(m[1]) : 0;
 }
 
-/** Canvas に理解度推移グラフを描画する */
 function drawComprehensionChart(logs) {
   const canvas = document.getElementById('comp-chart');
   if (!canvas || !canvas.getContext) return;
 
-  // リサイズ再描画のためにログを保持
   _chartLogs = logs;
 
   const data = logs.slice(-10);
@@ -1197,7 +1120,6 @@ function drawComprehensionChart(logs) {
     return PAD.top + cH - (v / 10) * cH;
   }
 
-  // グリッド線と Y ラベル
   [2, 4, 6, 8, 10].forEach(v => {
     const y = getY(v);
     ctx.beginPath();
@@ -1213,7 +1135,6 @@ function drawComprehensionChart(logs) {
     ctx.fillText(String(v), PAD.left - 5, y);
   });
 
-  // グラデーション塗りつぶし
   if (data.length > 1) {
     const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + cH);
     grad.addColorStop(0, 'rgba(79,70,229,0.22)');
@@ -1230,7 +1151,6 @@ function drawComprehensionChart(logs) {
     ctx.fill();
   }
 
-  // 折れ線
   if (data.length > 1) {
     ctx.beginPath();
     ctx.strokeStyle = primary;
@@ -1243,7 +1163,6 @@ function drawComprehensionChart(logs) {
     ctx.stroke();
   }
 
-  // ドット・値ラベル・日付ラベル
   data.forEach((log, i) => {
     const x   = getX(i);
     const val = parseComprehension(log.comprehension);
@@ -1272,9 +1191,6 @@ function drawComprehensionChart(logs) {
   });
 }
 
-/* ===========================
-   フォーム保存・復元
-=========================== */
 function saveCurrentForm() {
   const s = students[currentIndex];
   FIELD_IDS.forEach(id => {
@@ -1293,7 +1209,6 @@ function restoreForm(s) {
     if (el) el.value = s.data[id] || '';
   });
 
-  // 授業日フィールドが未入力の場合のみ、今日の日付を自動セット
   const lessonDateEl = document.getElementById('lesson-date');
   if (lessonDateEl && !s.data['lesson-date']) {
     lessonDateEl.value = getLocalDate();
@@ -1303,9 +1218,7 @@ function restoreForm(s) {
 
   selectedSubjects.clear();
   (s.data.subjects || []).forEach(v => selectedSubjects.add(v));
-  document.querySelectorAll('#subjects .chip').forEach(chip => {
-    chip.classList.toggle('selected', selectedSubjects.has(chip.dataset.val));
-  });
+  syncSubjectChips();
 
   const tests = (s.data.tests && s.data.tests.length > 0)
     ? s.data.tests
@@ -1317,7 +1230,6 @@ function restoreForm(s) {
     : [createShortTermGoalEntry()];
   renderGoalList(goals);
 
-  // モード自動判別（生徒タブ初回表示時のみ実行）
   if (!s.modeInitialized) {
     s.mode = detectMode('std_' + s.id);
     s.modeInitialized = true;
@@ -1326,7 +1238,6 @@ function restoreForm(s) {
   updateSubNavActive(s.mode);
   showModeSection(s.mode);
 
-  // 基本情報フィールドのロック状態を更新
   updateBasicInfoLock(s);
 
   if (s.lastResultType === 'lessonplan' && s.lessonPlanResult) {
@@ -1341,9 +1252,6 @@ function restoreForm(s) {
   }
 }
 
-/* ===========================
-   タブ描画・操作・ユーティリティ等は変更なし
-=========================== */
 function renderTabs() {
   const list = document.getElementById('tab-list');
   list.innerHTML = '';
@@ -1402,7 +1310,7 @@ function addStudent() {
 function removeStudent(idx) {
   if (students.length === 1) return;
   saveCurrentForm();
-  const removedKey = `student_data_std_${students[idx].id}`;
+  const removedKey = studentKey('std_' + students[idx].id);
   localStorage.removeItem(removedKey);
   students.splice(idx, 1);
   // 残存する最大番号+1 に studentCounter をリセット
@@ -1457,9 +1365,6 @@ function getVal(id) {
   return el ? el.value.trim() : '';
 }
 
-/* ===========================
-   短期目標テキスト生成ヘルパー（重複削減）
-=========================== */
 function formatShortTermGoals(goals) {
   const filled = goals.filter(g => g.text);
   return filled.length > 0
@@ -1502,7 +1407,6 @@ function buildFormData() {
   };
 }
 
-// buildFormData() の直後に追加
 function buildFormDataFromLog(log, student) {
   const shortTermGoalsText = formatShortTermGoals(student.data.shortTermGoals || []);
 
@@ -1547,7 +1451,13 @@ async function runAiGeneration(apiKey, triggerBtn, { loadingTitle, buildPrompt, 
 
     const result = parseGeminiResponse(data);
     onSuccess(result, capturedIndex);
-    showState('state-result');
+
+    // Race Condition 対策: AI生成中にタブが切り替わっていた場合、
+    // 画面表示（state-result への遷移）はスキップする。
+    // データ自体は onSuccess 内で capturedIndex を使って正しい生徒に保存済み。
+    if (capturedIndex === currentIndex) {
+      showState('state-result');
+    }
 
   } catch (err) {
     showInlineError(
@@ -1664,11 +1574,15 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehen
       ]
     },
     onSuccess: (result, capturedIndex) => {
-      // ログは保存済み → saveOrUpdateLessonLog は呼ばない
       addAIDiagnostics(studentId, result);
       students[capturedIndex].result         = result;
       students[capturedIndex].lastResultType = 'diagnosis';
-      renderResult(result, formData);
+
+      // Race Condition 対策: 生成中に別の生徒タブへ切り替わっていた場合、
+      // 元のタブの結果を今表示中の画面へ描画してしまわないようにスキップする。
+      if (capturedIndex === currentIndex) {
+        renderResult(result, formData);
+      }
     }
   });
 }
@@ -1731,10 +1645,14 @@ ${recentLogs.length > 0
       required: ['objective', 'keyPoints', 'pitfalls', 'teachingTips']
     },
     onSuccess: (result, capturedIndex) => {
-      // ログは保存済み → saveOrUpdateLessonLog は呼ばない
       students[capturedIndex].lessonPlanResult = result;
       students[capturedIndex].lastResultType   = 'lessonplan';
-      renderLessonPlanResult(result, formData);
+
+      // Race Condition 対策: 生成中に別の生徒タブへ切り替わっていた場合、
+      // 元のタブの結果を今表示中の画面へ描画してしまわないようにスキップする。
+      if (capturedIndex === currentIndex) {
+        renderLessonPlanResult(result, formData);
+      }
     }
   });
 }
@@ -1746,11 +1664,8 @@ function resetLessonContentField() {
   });
   updateScaleUI(''); // 理解度スケールボタンの選択状態もリセット
 
-  // 担当科目チップのリセット
   selectedSubjects.clear();
-  document.querySelectorAll('#subjects .chip').forEach(chip => {
-    chip.classList.toggle('selected', selectedSubjects.has(chip.dataset.val));
-  });
+  syncSubjectChips();
 }
 
 function showState(id) {
@@ -1760,7 +1675,6 @@ function showState(id) {
   });
 }
 
-/** ローディング画面のテキストを動的に差し替える */
 function setLoadingText(title, sub) {
   const titleEl = document.querySelector('#state-loading .state-title');
   const subEl   = document.querySelector('#state-loading .state-sub');
@@ -1768,9 +1682,15 @@ function setLoadingText(title, sub) {
   if (subEl)   subEl.textContent   = sub || 'しばらくお待ちください';
 }
 
-/* ===========================
-   テストエントリー管理
-=========================== */
+/** エントリー削除→再採番→空なら1件補充、の共通処理（テスト／短期目標で共用） */
+function removeEntryAndRefill(div, listId, itemSelector, renumberFn, refillElFn) {
+  const list = document.getElementById(listId);
+  div.remove();
+  renumberFn();
+  if (!list.querySelector(itemSelector)) {
+    list.appendChild(refillElFn());
+  }
+}
 
 function renderTestList(tests) {
   const list = document.getElementById('test-list');
@@ -1784,7 +1704,6 @@ function renderTestList(tests) {
   });
 }
 
-/** 1件のテストエントリー要素を生成してイベントをバインドする */
 function createTestEntryElement(test, idx) {
   const div      = document.createElement('div');
   div.className  = 'test-entry is-open';
@@ -1832,7 +1751,6 @@ function createTestEntryElement(test, idx) {
     </div>
   `;
 
-  // ── プレビューの更新処理 ──
   const previewSpan = div.querySelector('.test-preview');
   function updatePreview() {
     const type = div.querySelector('.test-type-input').value.trim();
@@ -1848,28 +1766,20 @@ function createTestEntryElement(test, idx) {
   });
   updatePreview();
 
-  // ── 開閉処理 ──
   const header = div.querySelector('.test-entry-header');
   header.addEventListener('click', (e) => {
     if (e.target.closest('.test-remove-btn')) return;
     div.classList.toggle('is-open');
   });
 
-  // ── 削除ボタン ──
   div.querySelector('.test-remove-btn').addEventListener('click', (e) => {
     e.stopPropagation();
-    const list = document.getElementById('test-list');
-    div.remove();
-    renumberTestEntries();
-    if (!list.querySelector('.test-entry')) {
-      list.appendChild(createTestEntryElement(createTestEntry(), 0));
-    }
+    removeEntryAndRefill(div, 'test-list', '.test-entry', renumberTestEntries, () => createTestEntryElement(createTestEntry(), 0));
   });
 
   return div;
 }
 
-/** DOM からテストエントリーデータを収集する */
 function collectTestEntries() {
   const entries = [];
   document.querySelectorAll('#test-list .test-entry').forEach(entryEl => {
@@ -1897,13 +1807,6 @@ function renumberTestEntries() {
   });
 }
 
-
-
-/* ===========================
-   短期目標エントリー
-=========================== */
-
-/** #short-goal-list の中身をまとめて再描画する */
 function renderGoalList(goals) {
   const list = document.getElementById('short-goal-list');
   list.innerHTML = '';
@@ -1912,7 +1815,6 @@ function renderGoalList(goals) {
   });
 }
 
-/** 1件の短期目標エントリー要素を生成してイベントをバインドする */
 function createGoalEntryElement(g, idx) {
   const div     = document.createElement('div');
   div.className = 'goal-entry';
@@ -1936,20 +1838,13 @@ function createGoalEntryElement(g, idx) {
     </button>
   `;
 
-  // ── 削除ボタン ──
   div.querySelector('.goal-remove-btn').addEventListener('click', () => {
-    const list = document.getElementById('short-goal-list');
-    div.remove();
-    renumberGoalEntries();
-    if (!list.querySelector('.goal-entry')) {
-      list.appendChild(createGoalEntryElement(createShortTermGoalEntry(), 0));
-    }
+    removeEntryAndRefill(div, 'short-goal-list', '.goal-entry', renumberGoalEntries, () => createGoalEntryElement(createShortTermGoalEntry(), 0));
   });
 
   return div;
 }
 
-/** DOM から短期目標エントリーデータを収集する */
 function collectGoalEntries() {
   const entries = [];
   document.querySelectorAll('#short-goal-list .goal-entry').forEach(entryEl => {
@@ -1967,14 +1862,6 @@ function renumberGoalEntries() {
   });
 }
 
-
-
-
-
-
-/* ===========================
-   次回授業案をHTMLに描画する
-=========================== */
 function renderLessonPlanResult(d, formData) {
   const subLine = [formData.grade, formData.subjects]
     .filter(v => v !== '未入力').join(' ／ ');
@@ -2027,7 +1914,6 @@ function renderLessonPlanResult(d, formData) {
 
   document.getElementById('state-result').innerHTML = html;
 
-  // 授業案コピーボタン
   bindCopyButton('lesson-copy-btn', () => `
 【次回授業案】${formData.name} さん（${subLine}）
 
@@ -2044,7 +1930,6 @@ ${(d.pitfalls || []).map(p => `・${p}`).join('\n')}
 ${d.teachingTips || ''}
 `.trim());
 
-  // 診断レポートに切り替えるボタン（診断結果が存在する場合のみ表示）
   const switchBtn = document.getElementById('switch-to-diagnosis-btn');
   if (switchBtn) {
     switchBtn.addEventListener('click', () => {
@@ -2058,10 +1943,6 @@ ${d.teachingTips || ''}
   }
 }
 
-
-/* ===========================
-   診断結果をHTMLに描画する・初期化
-=========================== */
 function renderResult(d, formData) {
   const { score: clampedScore, stars } = renderStars(d.overallScore);
   const subLine = [formData.grade, formData.subjects]
@@ -2174,14 +2055,10 @@ function renderResult(d, formData) {
 
   document.getElementById('state-result').innerHTML = html;
 
-  // --- イベントバインド ---
-
-  // 1. 印刷 / PDF保存ボタン
   document.getElementById('print-btn').addEventListener('click', () => {
     window.print();
   });
 
-  // 2. レポート全体テキストコピー
   bindCopyButton('copy-all-btn', () => `
 【生徒診断レポート】${formData.name} さん（${subLine}）
 総合評価: ${d.overallScore}/5
@@ -2219,10 +2096,8 @@ ${d.instructorAdvice || ''}
 ${d.parentMessage || ''}
 `.trim());
 
-  // 3. 保護者用コメントコピーボタン
   bindCopyButton('copy-btn', () => document.getElementById('parent-text').innerText);
 
-  // 4. 次回授業案に切り替えるボタン（授業案が存在する場合のみ表示）
   const switchToLessonBtn = document.getElementById('switch-to-lesson-btn');
   if (switchToLessonBtn) {
     switchToLessonBtn.addEventListener('click', () => {
@@ -2236,12 +2111,6 @@ ${d.parentMessage || ''}
   }
 }
 
-
-/* ===========================
-   Step 6: データ管理
-=========================== */
-
-/** 全生徒データをJSONファイルとしてダウンロード */
 function exportAllData() {
   saveCurrentForm();
 
@@ -2275,7 +2144,6 @@ function exportAllData() {
   showToast('エクスポートが完了しました ✓');
 }
 
-/** JSONファイルを読み込んでデータを復元する */
 function importData(file) {
   if (!file) return;
   const reader = new FileReader();
@@ -2303,7 +2171,6 @@ function importData(file) {
         });
       }
 
-      // ③ タブ一覧を上書き（①で確認済みの場合のみ実行）
       if (overwriteTabs) {
         students = parsed.tabs.map(t => ({
           ...createStudent(),
@@ -2335,14 +2202,12 @@ function importData(file) {
   reader.readAsText(file);
 }
 
-/** 一時トースト通知を表示する */
 function showToast(message, type = 'success') {
   const toast = document.createElement('div');
   toast.className = `data-toast data-toast-${type}`;
   const icon = type === 'success' ? 'ti-circle-check' : 'ti-alert-triangle';
   toast.innerHTML = `<i class="ti ${icon}"></i> ${escapeHtml(message)}`;
   document.body.appendChild(toast);
-  // ダブル rAF で transition を確実に発火させる
   requestAnimationFrame(() => requestAnimationFrame(() => toast.classList.add('show')));
   setTimeout(() => {
     toast.classList.remove('show');
@@ -2350,7 +2215,6 @@ function showToast(message, type = 'success') {
   }, 3000);
 }
 
-/** 右パネルに全生徒の横断サマリーを描画する */
 function renderSummaryPanel() {
   saveCurrentForm();
 
@@ -2358,7 +2222,6 @@ function renderSummaryPanel() {
   const DANGER_COMP  = 4;   // 理解度 ≤ この値でフラグ（赤）
   const ABSENT_DAYS  = 14;  // この日数以上授業なしでフラグ（黄）
 
-  /* ---- 各生徒のデータを集計 ---- */
   const rows = students.map((s, idx) => {
     const name  = (s.data['f-name'] || '').trim() || s.defaultName;
     const grade = s.data['f-grade'] || '—';
@@ -2366,20 +2229,17 @@ function renderSummaryPanel() {
     const record  = getStudentData('std_' + s.id);
     const logs    = record ? record.lessonLogs : [];
 
-    // 直近理解度（記録があるログの最新値）
     const logsWithComp = logs.filter(l => parseComprehension(l.comprehension) > 0);
     const lastComp = logsWithComp.length > 0
       ? parseComprehension(logsWithComp[logsWithComp.length - 1].comprehension)
       : null;
 
-    // 最終授業日
     const lastLog  = logs.length > 0 ? logs[logs.length - 1] : null;
     const lastDate = lastLog ? lastLog.date : null;
     const daysAgo  = lastDate
       ? Math.floor((TODAY - new Date(lastDate + 'T00:00:00')) / 86400000)
       : null;
 
-    // フラグ判定
     const flags = [];
     if (lastComp !== null && lastComp <= DANGER_COMP) {
       flags.push({ type: 'danger',  icon: 'ti-alert-circle', label: `理解度 ${lastComp}/10` });
@@ -2394,11 +2254,9 @@ function renderSummaryPanel() {
     return { idx, name, grade, lastDate, daysAgo, lastComp, flags };
   });
 
-  /* ---- KPI 集計 ---- */
   const dangerCount  = rows.filter(r => r.flags.some(f => f.type === 'danger')).length;
   const warningCount = rows.filter(r => r.flags.some(f => f.type === 'warning')).length;
 
-  /* ---- HTML 組み立て ---- */
   let html = `
     <div class="summary-header">
       <div class="summary-title"><i class="ti ti-users"></i> 全生徒サマリー</div>
@@ -2489,16 +2347,13 @@ function renderSummaryPanel() {
   summaryEl.innerHTML = html;
   showState('state-summary');
 
-  // 行クリック → 該当タブへ切替
   summaryEl.querySelectorAll('tr[data-student-idx]').forEach(row => {
     row.style.cursor = 'pointer';
     row.addEventListener('click', () => switchTab(Number(row.dataset.studentIdx)));
   });
 
-  // サマリー内エクスポートボタン
   document.getElementById('summary-export-btn').addEventListener('click', exportAllData);
 
-  // サマリー内インポートボタン
   const summaryImportInput = document.getElementById('summary-import-input');
   summaryImportInput.addEventListener('change', e => {
     if (e.target.files[0]) importData(e.target.files[0]);
@@ -2519,9 +2374,11 @@ function updateEditModeUI() {
   }
 }
 
-function cancelEditMode() {
-  _editingLogId = null;
-  _editingLog   = null;
+// 「履歴モードへ戻る」定型処理の共通化
+// cancelEditMode と save-log-btn.onclick の wasEditing分岐で重複していた
+// 「フォーム復元→履歴モードへ遷移（saveCurrentForm をスキップ）」を1箇所にまとめる。
+// showToast は呼び出し元ごとにメッセージが異なるため、この関数の外で個別に呼ぶ。
+function returnToHistoryMode() {
   // フォームを編集開始前の状態（student.data）に復元
   restoreForm(students[currentIndex]);
   // 履歴タブへ直接遷移（saveCurrentForm をスキップ）
@@ -2530,7 +2387,28 @@ function cancelEditMode() {
   updateSubNavActive('history');
   showModeSection('history');
   updateEditModeUI();
+}
+
+function cancelEditMode() {
+  _editingLogId = null;
+  returnToHistoryMode();
   showToast('編集をキャンセルしました');
+}
+
+// フォーム検証＋コンテキスト取得の共通化
+// gen-btn.onclick と save-log-btn.onclick の冒頭で重複していた
+// 「buildFormData()取得→lessonDate算出→氏名未入力チェック→studentId算出」を1箇所にまとめる。
+// currentIndex は呼び出し時点（各onclick発火時）で評価されるため、既存の挙動と同一。
+function getValidatedFormContext() {
+  const formData   = buildFormData();
+  const lessonDate = getVal('lesson-date') || getLocalDate();
+
+  if (!formData.name || formData.name === '未入力') {
+    showToast('生徒名を入力してください', 'error');
+    return null;
+  }
+
+  return { formData, lessonDate, studentId: 'std_' + students[currentIndex].id };
 }
 
 function injectSaveLogButton() {
@@ -2548,22 +2426,27 @@ function injectSaveLogButton() {
       const apiKey = document.getElementById('api-key')?.value.trim();
       if (!apiKey) { showApiKeyError(); return; }
 
-      const formData   = buildFormData();
-      const lessonDate = getVal('lesson-date') || getLocalDate();
-
-      if (!formData.name || formData.name === '未入力') {
-        showToast('生徒名を入力してください', 'error');
-        return;
-      }
-
-      const studentId = 'std_' + students[currentIndex].id;
+      const ctx = getValidatedFormContext();
+      if (!ctx) return;
+      const { formData, lessonDate, studentId } = ctx;
 
       // バグ⑤修正: 診断実行前に授業ログを保存する
       // 「授業記録のみ保存する」ボタンの押し忘れでログが消失するのを防ぐため、
       // runDiagnosisGeneration を呼ぶ前に必ず saveOrUpdateLessonLog を実行する。
       // （runDiagnosisGeneration 側は「ログは保存済み」前提で実装されているため、
       //   ここで保存しておかないと診断結果だけが残りログが残らない状態になる）
-      const action = saveOrUpdateLessonLog(studentId, formData, lessonDate);
+      // 修正②: saveOrUpdateLessonLog が失敗（例外）した場合、ここで捕捉して
+      // エラートーストを表示する。未処理のまま診断生成に進んでしまうと
+      // ログが保存されていないのに診断結果だけが残る不整合が起きるため、
+      // 失敗時はここで処理を中断する。
+      let action;
+      try {
+        action = saveOrUpdateLessonLog(studentId, formData, lessonDate);
+      } catch (err) {
+        console.error('授業記録の保存に失敗しました:', err);
+        showToast('授業記録の保存に失敗しました。時間をおいて再度お試しください', 'error');
+        return;
+      }
       showToast(action === 'updated' ? '授業記録を更新しました ✓' : '授業記録を保存しました ✓');
       // saveOrUpdateLessonLog 内で _editingLogId がクリアされるため、
       // 保存/更新ボタンの表示（編集中ラベル・キャンセルボタン）を最新状態に同期する
@@ -2582,24 +2465,28 @@ function injectSaveLogButton() {
     btn.id        = 'save-log-btn';
     btn.innerHTML = '<i class="ti ti-save"></i> 授業記録のみ保存する';
 
-    // gen-btn の直後に挿入
     genBtn.insertAdjacentElement('afterend', btn);
   }
 
   // ── HTML既存ボタン・動的生成ボタンどちらにも必ず onclick を設定する ──
   btn.onclick = () => {
-    const formData   = buildFormData();
-    const lessonDate = getVal('lesson-date') || getLocalDate();
+    const ctx = getValidatedFormContext();
+    if (!ctx) return;
+    const { formData, lessonDate, studentId } = ctx;
 
-    if (!formData.name || formData.name === '未入力') {
-      showToast('生徒名を入力してください', 'error');
-      return;
-    }
-
-    const studentId  = 'std_' + students[currentIndex].id;
     const wasEditing = !!_editingLogId; // 保存前に編集モードを記憶
 
-    const action = saveOrUpdateLessonLog(studentId, formData, lessonDate);
+    // 修正②: saveOrUpdateLessonLog が失敗（例外）した場合、ここで捕捉して
+    // エラートーストを表示する。未処理のまま以降のフォームリセットや
+    // 履歴モードへの遷移が走ると、保存に失敗したことにユーザーが気づけない。
+    let action;
+    try {
+      action = saveOrUpdateLessonLog(studentId, formData, lessonDate);
+    } catch (err) {
+      console.error('授業記録の保存に失敗しました:', err);
+      showToast('授業記録の保存に失敗しました。時間をおいて再度お試しください', 'error');
+      return;
+    }
     showToast(action === 'updated' ? '授業記録を更新しました ✓' : '授業記録を保存しました ✓');
     resetLessonContentField();   // switchMode/restoreForm の前に実行
 
@@ -2612,13 +2499,8 @@ function injectSaveLogButton() {
 
     if (wasEditing) {
       // 編集時: saveCurrentForm() をスキップして s.data を汚染しない
-      // saveOrUpdateLessonLog 内で _editingLogId / _editingLog はクリア済み
-      restoreForm(students[currentIndex]); // pre-edit の s.data を復元
-      students[currentIndex].mode = 'history';
-      saveStudentsTabs();
-      updateSubNavActive('history');
-      showModeSection('history');
-      updateEditModeUI();
+      // saveOrUpdateLessonLog 内で _editingLogId はクリア済み
+      returnToHistoryMode();
     } else {
       switchMode('history'); // 新規保存時は従来通り
     }
@@ -2634,22 +2516,15 @@ function injectSaveLogButton() {
     btn.insertAdjacentElement('afterend', cancelBtn);
   }
 
-  // ── HTML既存ボタン・動的生成ボタンどちらにも必ず onclick を設定する ──
   cancelBtn.onclick = cancelEditMode;
 }
 
-/* ===========================
-   初期化（DOMContentLoaded）
-   — DOM構築完了後に全イベントバインドを実行
-=========================== */
 document.addEventListener('DOMContentLoaded', () => {
 
-  // ── form-panel スクロールヘルパー ──
   const scrollPanelToBottom = () =>
     setTimeout(() => document.getElementById('form-panel')
       ?.scrollTo({ top: Infinity, behavior: 'smooth' }), 50);
 
-  // ── 理解度スケールボタン ──
   document.querySelectorAll('#comp-scale .scale-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const val = btn.dataset.val;
@@ -2658,7 +2533,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // ── 担当科目チップ ──
   document.querySelectorAll('#subjects .chip').forEach(chip => {
     chip.addEventListener('click', () => {
       const val = chip.dataset.val;
@@ -2672,7 +2546,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // ── 生徒名入力 → タブ名同期 ──
   document.getElementById('f-name')?.addEventListener('input', e => {
     const name = e.target.value.trim();
     students[currentIndex].tabName = name || students[currentIndex].defaultName;
@@ -2683,8 +2556,6 @@ document.addEventListener('DOMContentLoaded', () => {
     saveStudentsTabs(); // タブ名（生徒名）の変更を即時永続化
   });
 
-  // ── テスト追加ボタン ──
-  // テスト追加ボタンの処理
   document.getElementById('test-add-btn')?.addEventListener('click', () => {
     const list = document.getElementById('test-list');
   
@@ -2698,8 +2569,6 @@ document.addEventListener('DOMContentLoaded', () => {
     scrollPanelToBottom();
   });
 
-  // ── 短期目標追加ボタン ──
-  // 短期目標追加ボタンの処理
   document.getElementById('goal-add-btn')?.addEventListener('click', () => {
     const list   = document.getElementById('short-goal-list');
     const newIdx = list.querySelectorAll('.goal-entry').length;
@@ -2710,8 +2579,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── テスト結果の変更を即時永続化 ──
   // change を追加しているのは、test-grade-select（学年セレクト）と
-  // test-date-input（日付入力）がブラウザによっては input だけでは
-  // 捕捉できないケースがあるため。
+  // test-date-input（日付入力）がブラウザによっては input だけでは捕捉できないケースがあるため。
   ['input', 'change'].forEach(evt => {
     document.getElementById('test-list')?.addEventListener(evt, () => {
       students[currentIndex].data.tests = collectTestEntries();
@@ -2719,15 +2587,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // ── 短期目標の変更を即時永続化 ──
   document.getElementById('short-goal-list')?.addEventListener('input', () => {
     students[currentIndex].data.shortTermGoals = collectGoalEntries();
     saveStudentsTabs();
   });
 
-  /* ===========================
-     タブ・データ管理ボタン
-  =========================== */
+  /* タブ・データ管理ボタン */
   document.getElementById('tab-add-btn')?.addEventListener('click', addStudent);
 
   document.getElementById('tab-summary-btn')?.addEventListener('click', renderSummaryPanel);
@@ -2740,7 +2605,6 @@ document.addEventListener('DOMContentLoaded', () => {
     e.target.value = '';
   });
 
-  // 基本情報「変更」ボタン: 生徒名・学年のロックを一時解除する
   document.getElementById('basic-info-unlock-btn')?.addEventListener('click', () => {
     const nameInput   = document.getElementById('f-name');
     const gradeSelect = document.getElementById('f-grade');
@@ -2768,9 +2632,7 @@ document.addEventListener('DOMContentLoaded', () => {
   restoreForm(students[currentIndex]);
   injectSaveLogButton();
 
-  /* ===========================
-     APIキー 表示/非表示トグル
-  =========================== */
+  /* APIキー 表示/非表示トグル */
   document.getElementById('api-key-toggle')?.addEventListener('click', () => {
     const input   = document.getElementById('api-key');
     const icon    = document.querySelector('#api-key-toggle .ti');
@@ -2779,20 +2641,16 @@ document.addEventListener('DOMContentLoaded', () => {
     icon.className = `ti ${isHidden ? 'ti-eye-off' : 'ti-eye'}`;
   });
 
-  /* ===========================
-     APIキーの永続化
+  /* APIキーの永続化
      - ページ読み込み時に localStorage から自動復元
-     - 入力変更のたびに localStorage へ保存（空の場合は削除）
-  =========================== */
+     - 入力変更のたびに localStorage へ保存（空の場合は削除） */
   (function initApiKeyPersistence() {
     const apiKeyEl = document.getElementById('api-key');
     if (!apiKeyEl) return;
 
-    // 復元
     const saved = localStorage.getItem('gemini_api_key');
     if (saved) apiKeyEl.value = saved;
 
-    // 自動保存
     apiKeyEl.addEventListener('input', () => {
       const val = apiKeyEl.value.trim();
       if (val) {
@@ -2803,11 +2661,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   })();
 
-  /* ===========================
-     理解度グラフのリサイズ対応
+  /* 理解度グラフのリサイズ対応
      - ウィンドウ幅が変わったとき、グラフが表示中であれば再描画する
-     - デバウンス 150ms でパフォーマンスを確保
-  =========================== */
+     - デバウンス 150ms でパフォーマンスを確保 */
   window.addEventListener('resize', () => {
     clearTimeout(_chartResizeTimer);
     _chartResizeTimer = setTimeout(() => {
