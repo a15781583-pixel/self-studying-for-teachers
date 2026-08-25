@@ -67,6 +67,7 @@ function addLessonLog(studentId, logData) {
     comprehension: parseComprehension(logData.comprehension),
     attitude: logData.attitude || '',
     instructorNotes: logData.instructorNotes || '',
+    takeaways: logData.takeaways || '',
     lessonContent: logData.lessonContent || ''
   };
   return mutateStudentData(studentId, d => d.lessonLogs.push(newLog));
@@ -121,6 +122,7 @@ function buildLessonLogPayload(formData, lessonDate) {
     comprehension:   formData.comp,
     attitude:        formData.attitude,
     instructorNotes: formData.notes,
+    takeaways:       formData.takeaways,
     lessonContent:   formData.lessonContent
   };
 }
@@ -229,7 +231,7 @@ const FIELD_IDS = [
   'lesson-date',
   'f-comp',
   'f-attitude',
-  'f-goal', 'f-concerns', 'f-notes',
+  'f-goal', 'f-concerns', 'f-notes', 'f-takeaways',
   'f-lesson-content',
 ];
 
@@ -866,6 +868,9 @@ function loadLogIntoReportForm(log) {
   const notesEl = document.getElementById('f-notes');
   if (notesEl) notesEl.value = log.instructorNotes || '';
 
+  const takeawaysEl = document.getElementById('f-takeaways');
+  if (takeawaysEl) takeawaysEl.value = log.takeaways || '';
+
   // テスト・単元結果を復元（バグ修正①）
   // log.unit は保存時に buildFormData().scores として記録されたテキスト。
   // parseUnitToTestEntries でテストエントリー配列に変換してから renderTestList で描画する。
@@ -969,6 +974,7 @@ function renderHistoryView() {
                   <span class="accordion-comp-num">${comp} / 10</span>
                 </div>` : ''}
               ${log.instructorNotes ? `<div class="accordion-field"><span class="accordion-field-label">講師メモ：</span>${escapeHtml(log.instructorNotes).replace(/\n/g, '<br>')}</div>` : ''}
+              ${log.takeaways       ? `<div class="accordion-field"><span class="accordion-field-label">抽象化・転用メモ：</span>${escapeHtml(log.takeaways).replace(/\n/g, '<br>')}</div>` : ''}
               ${log.attitude        ? `<div class="accordion-field"><span class="accordion-field-label">学習態度：</span>${escapeHtml(log.attitude).replace(/\n/g, '<br>')}</div>` : ''}
               ${log.homeworkStatus  ? `<div class="accordion-field"><span class="accordion-field-label">宿題状況：</span>${escapeHtml(log.homeworkStatus).replace(/\n/g, '<br>')}</div>` : ''}
               ${log.unit            ? `<div class="accordion-field"><span class="accordion-field-label">単元/結果：</span>${escapeHtml(log.unit).replace(/\n/g, '<br>')}</div>` : ''}
@@ -1403,6 +1409,7 @@ function buildFormData() {
     shortTermGoals: shortTermGoalsText,
     concerns:       getVal('f-concerns') || '未入力',
     notes:          getVal('f-notes')    || '未入力',
+    takeaways:      getVal('f-takeaways')  || '未入力',
     lessonContent:  getVal('f-lesson-content') || '未入力',
   };
 }
@@ -1423,6 +1430,7 @@ function buildFormDataFromLog(log, student) {
     shortTermGoals: shortTermGoalsText,
     concerns:       student.data['f-concerns']|| '未入力',
     notes:          log.instructorNotes       || '未入力',
+    takeaways:      log.takeaways             || '未入力',
     lessonContent:  log.lessonContent         || '未入力',
   };
 }
@@ -1520,6 +1528,7 @@ ${lastDiag ? `前回の総合スコア: ${lastDiag.overallScore} / 5\n前回の�
 ${previousLogs.length > 0 ? previousLogs.map((log, index) => `
 ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehension(log.comprehension)}/10
    所見: ${log.instructorNotes}
+   転用メモ: ${log.takeaways || 'なし'}
 `).join('') : '過去の授業ログはありません'}
 
 【今回の授業レポート (${lessonDate})】
@@ -1528,6 +1537,7 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehen
 テスト・単元結果: ${formData.scores}
 学習態度・自習状況: ${formData.attitude}
 講師メモ: ${formData.notes}
+抽象化・転用メモ: ${formData.takeaways}
 
 【指示】
 - 学習傾向分析の数値（理解度の傾向・スコア変化）を必ず言及し、変化を具体的に評価してください。
@@ -1609,7 +1619,7 @@ ${formData.shortTermGoals}
 【直近の授業履歴（最大5件）】
 ${recentLogs.length > 0
   ? recentLogs.map((log, i) =>
-      `${i + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehension(log.comprehension)}/10\n   メモ: ${log.instructorNotes}`
+      `${i + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehension(log.comprehension)}/10\n   メモ: ${log.instructorNotes}\n   転用メモ: ${log.takeaways || 'なし'}`
     ).join('\n')
   : '過去の授業ログはありません'}
 
@@ -1619,6 +1629,7 @@ ${recentLogs.length > 0
 テスト・単元結果: ${formData.scores}
 学習態度: ${formData.attitude}
 講師メモ: ${formData.notes}
+抽象化・転用メモ: ${formData.takeaways}
 
 【指示】
 - 今回の理解度・課題を踏まえ、次回の授業目標を1文で端的に示してください。
@@ -1658,7 +1669,7 @@ ${recentLogs.length > 0
 }
 
 function resetLessonContentField() {
-  ['f-lesson-content', 'f-comp', 'f-attitude', 'f-notes'].forEach(id => {
+  ['f-lesson-content', 'f-comp', 'f-attitude', 'f-notes', 'f-takeaways'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
