@@ -847,12 +847,17 @@ function syncSubjectChips() {
   });
 }
 
+// 科目文字列（例: "算数/数学、英語"）を単一科目の配列に分割する共通ヘルパー
+function splitSubjects(subjectStr) {
+  return (subjectStr || '').split(/[、,，]/).map(s => s.trim()).filter(Boolean);
+}
+
 function loadLogIntoReportForm(log) {
   const dateEl = document.getElementById('lesson-date');
   if (dateEl) dateEl.value = log.date || '';
 
   selectedSubjects.clear();
-  (log.subject || '').split(/[、,，]/).map(s => s.trim()).filter(Boolean)
+  splitSubjects(log.subject)
     .forEach(v => selectedSubjects.add(v));
   syncSubjectChips();
 
@@ -983,9 +988,20 @@ function renderHistoryView() {
               <button type="button" class="log-action-btn ai-diag-btn" data-logid="${logId}">
                 <i class="ti ti-sparkles"></i> AI診断
               </button>
-              <button type="button" class="log-action-btn ai-lesson-btn" data-logid="${logId}">
-                <i class="ti ti-calendar-event"></i> 次回授業案
-              </button>
+              ${(() => {
+                const subjectList = splitSubjects(log.subject);
+                if (subjectList.length === 0) {
+                  return `
+                    <button type="button" class="log-action-btn ai-lesson-btn" data-logid="${logId}">
+                      <i class="ti ti-calendar-event"></i> 次回授業案
+                    </button>`;
+                }
+                return subjectList.map(sub => `
+                  <button type="button" class="log-action-btn ai-lesson-btn" data-logid="${logId}" data-subject="${escapeHtml(sub)}">
+                    <i class="ti ti-calendar-event"></i> 次回授業案（${escapeHtml(sub)}）
+                  </button>
+                `).join('');
+              })()}
             </div>
 
           </div>
@@ -1042,7 +1058,12 @@ function renderHistoryView() {
         if (!apiKey) { showApiKeyError(); return; }
         const log = pastData.lessonLogs.find(l => l.logId === btn.dataset.logid);
         if (!log) return;
-        runFn(apiKey, buildFormDataFromLog(log, currentStudent), log.date, studentId, btn);
+
+        const formData = buildFormDataFromLog(log, currentStudent);
+        // 科目別ボタン（data-subject付き）が押された場合、その科目のみに絞り込む
+        if (btn.dataset.subject) formData.subjects = btn.dataset.subject;
+
+        runFn(apiKey, formData, log.date, studentId, btn);
       });
     });
   }
@@ -1247,7 +1268,9 @@ function restoreForm(s) {
   updateBasicInfoLock(s);
 
   if (s.lastResultType === 'lessonplan' && s.lessonPlanResult) {
-    renderLessonPlanResult(s.lessonPlanResult, buildFormData());
+    const fd = buildFormData();
+    if (s.lessonPlanSubject) fd.subjects = s.lessonPlanSubject; // 生成時の科目で上書き
+    renderLessonPlanResult(s.lessonPlanResult, fd);
     showState('state-result');
   } else if (s.result) {
     s.lastResultType = 'diagnosis';
@@ -1598,8 +1621,13 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehen
 }
 
 async function runLessonPlanGeneration(apiKey, formData, lessonDate, studentId, triggerBtn) {
-  const pastData   = getStudentData(studentId);
-  const recentLogs = pastData ? pastData.lessonLogs.slice(-5) : [];
+  const pastData      = getStudentData(studentId);
+  const targetSubject = formData.subjects; // ③でボタンの科目に上書き済み
+
+  const sameSubjectLogs = pastData
+    ? pastData.lessonLogs.filter(log => splitSubjects(log.subject).includes(targetSubject))
+    : [];
+  const recentLogs = (sameSubjectLogs.length > 0 ? sameSubjectLogs : (pastData?.lessonLogs || [])).slice(-5);
 
   const buildPrompt = () => `
 あなたはベテラン塾講師です。
@@ -1632,9 +1660,9 @@ ${recentLogs.length > 0
 抽象化・転用メモ: ${formData.takeaways}
 
 【指示】
+- 今回作成する授業案は「${formData.subjects}」科目のみを対象とします。今回の授業内容や履歴に他科目の内容が混在していても、次回授業案には対象科目以外の内容を一切含めないでください。
 - 今回の理解度・課題を踏まえ、次回の授業目標を1文で端的に示してください。
-- 複数の科目が含まれる場合は、重点指導ポイント、教材、宿題、つまずきやすい箇所を「【英語】〇〇」「【数学】〇〇」のように科目別に分けて明確に記載してください。
-- 重点指導ポイントは科目ごとに具体的に単元名・問題タイプを挙げてください。
+- 重点指導ポイントは具体的に単元名・問題タイプを挙げてください。
 - 生徒がつまずきやすい箇所と講師がとるべき対処法を明記してください。
 - 指導のヒントとして、この生徒への効果的なアプローチを1〜2文で示してください。
 - 短期目標の期限が近い場合は、その達成を最優先した集中指導プランを示してください。
@@ -1656,8 +1684,9 @@ ${recentLogs.length > 0
       required: ['objective', 'keyPoints', 'pitfalls', 'teachingTips']
     },
     onSuccess: (result, capturedIndex) => {
-      students[capturedIndex].lessonPlanResult = result;
-      students[capturedIndex].lastResultType   = 'lessonplan';
+      students[capturedIndex].lessonPlanResult  = result;
+      students[capturedIndex].lessonPlanSubject = formData.subjects; // 追加：生成時の対象科目を保持
+      students[capturedIndex].lastResultType    = 'lessonplan';
 
       // Race Condition 対策: 生成中に別の生徒タブへ切り替わっていた場合、
       // 元のタブの結果を今表示中の画面へ描画してしまわないようにスキップする。
@@ -2115,7 +2144,9 @@ ${d.parentMessage || ''}
       const s = students[currentIndex];
       if (s.lessonPlanResult) {
         s.lastResultType = 'lessonplan';
-        renderLessonPlanResult(s.lessonPlanResult, buildFormData());
+        const fd = buildFormData();
+        if (s.lessonPlanSubject) fd.subjects = s.lessonPlanSubject;
+        renderLessonPlanResult(s.lessonPlanResult, fd);
         showState('state-result');
       }
     });
