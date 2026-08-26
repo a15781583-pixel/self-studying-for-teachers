@@ -361,302 +361,6 @@ function detectMode(studentId) {
   return (data && data.lessonLogs.length > 0) ? 'report' : 'profile';
 }
 
-/** サブナビゲーション用スタイルを <head> に一度だけ注入する */
-function injectSubNavStyles() {
-  if (document.getElementById('sub-nav-styles')) return;
-  const style = document.createElement('style');
-  style.id = 'sub-nav-styles';
-  style.textContent = `
-    .sub-nav {
-      display: flex;
-      gap: 4px;
-      padding: 10px 12px 8px;
-      border-bottom: 1px solid var(--border, #e5e7eb);
-      background: var(--bg, #fff);
-    }
-    .sub-nav-btn {
-      flex: 1;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 5px;
-      padding: 7px 4px;
-      border: 1px solid var(--border, #d1d5db);
-      border-radius: 8px;
-      background: transparent;
-      color: var(--text-muted, #6b7280);
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background 0.15s, color 0.15s, border-color 0.15s;
-      white-space: nowrap;
-    }
-    .sub-nav-btn:hover {
-      background: var(--surface-hover, #f3f4f6);
-      color: var(--text, #111827);
-    }
-    .sub-nav-btn.active {
-      background: var(--primary, #4f46e5);
-      border-color: var(--primary, #4f46e5);
-      color: #fff;
-    }
-    .history-empty {
-      padding: 40px 16px;
-      text-align: center;
-      color: var(--text-muted, #9ca3af);
-      font-size: 14px;
-    }
-    .history-section-title {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 14px 16px 8px;
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-muted, #6b7280);
-      border-bottom: 1px solid var(--border, #e5e7eb);
-      margin: 0;
-    }
-    .history-card {
-      padding: 10px 16px;
-      border-bottom: 1px solid var(--border, #f3f4f6);
-    }
-    .history-card-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 4px;
-      flex-wrap: wrap;
-    }
-    .history-date {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--text-muted, #6b7280);
-    }
-    .history-score {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--primary, #4f46e5);
-    }
-    .history-subject {
-      font-size: 11px;
-      color: var(--text-muted, #6b7280);
-      background: var(--surface-hover, #f3f4f6);
-      padding: 2px 8px;
-      border-radius: 12px;
-    }
-    .history-comp {
-      font-size: 11px;
-      color: var(--text-muted, #6b7280);
-    }
-    .history-card-body {
-      font-size: 12px;
-      color: var(--text, #374151);
-      line-height: 1.5;
-    }
-    #section-history {
-      overflow-y: auto;
-    }
-
-    /* ── アコーディオン ── */
-    .accordion-list {
-      border-top: 1px solid var(--border, #e5e7eb);
-    }
-    .accordion-item {
-      border-bottom: 1px solid var(--border, #e5e7eb);
-    }
-    .accordion-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 10px 16px;
-      cursor: pointer;
-      gap: 8px;
-      user-select: none;
-      transition: background 0.15s;
-    }
-    .accordion-header:hover {
-      background: var(--surface-hover, #f9fafb);
-    }
-    .accordion-header-left {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-      min-width: 0;
-      flex: 1;
-    }
-    .accordion-icon {
-      font-size: 13px;
-      color: var(--text-muted, #9ca3af);
-      transition: transform 0.2s;
-      flex-shrink: 0;
-    }
-    .accordion-item.is-open .accordion-icon {
-      transform: rotate(90deg);
-    }
-    .accordion-body {
-      display: none;
-      padding: 4px 16px 12px 36px;
-      font-size: 12px;
-      color: var(--text, #374151);
-      line-height: 1.6;
-    }
-    .accordion-item.is-open .accordion-body {
-      display: block;
-    }
-    .accordion-field {
-      margin-bottom: 4px;
-    }
-    .accordion-field-label {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--text-muted, #6b7280);
-    }
-    .accordion-comp-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 8px;
-    }
-    .accordion-comp-num {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--primary, #4f46e5);
-      white-space: nowrap;
-    }
-    .mini-bar {
-      display: inline-block;
-      width: 80px;
-      height: 6px;
-      background: var(--border, #e5e7eb);
-      border-radius: 3px;
-      overflow: hidden;
-      vertical-align: middle;
-    }
-    .mini-bar-fill {
-      display: block;
-      height: 100%;
-      background: var(--primary, #4f46e5);
-      border-radius: 3px;
-    }
-
-    /* ── 直近AI診断バッジ ── */
-    .diag-badge-wrapper {
-      padding: 14px 16px 4px;
-    }
-    .diag-badge-label {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--text-muted, #6b7280);
-      margin-bottom: 8px;
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-    .diag-badge {
-      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-      border-radius: 12px;
-      padding: 14px 16px;
-      color: #fff;
-      margin-bottom: 4px;
-    }
-    .diag-badge-score {
-      display: flex;
-      align-items: baseline;
-      gap: 8px;
-      margin-bottom: 8px;
-    }
-    .diag-badge-stars {
-      font-size: 15px;
-      letter-spacing: 2px;
-      opacity: 0.95;
-    }
-    .diag-badge-num {
-      font-size: 26px;
-      font-weight: 700;
-      line-height: 1;
-    }
-    .diag-badge-num small {
-      font-size: 12px;
-      font-weight: 400;
-      opacity: 0.75;
-    }
-    .diag-badge-diff {
-      font-size: 11px;
-      font-weight: 700;
-      padding: 2px 7px;
-      border-radius: 20px;
-      background: rgba(255,255,255,0.2);
-    }
-    .diag-badge-diff.down {
-      background: rgba(0,0,0,0.18);
-    }
-    .diag-badge-comment {
-      font-size: 12px;
-      opacity: 0.9;
-      line-height: 1.55;
-      margin-bottom: 6px;
-      display: -webkit-box;
-      -webkit-line-clamp: 3;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-    }
-    .diag-badge-date {
-      font-size: 10px;
-      opacity: 0.65;
-    }
-    .diag-score-badge {
-      font-size: 11px;
-      font-weight: 600;
-      background: var(--primary, #4f46e5);
-      color: #fff;
-      padding: 2px 8px;
-      border-radius: 20px;
-      flex-shrink: 0;
-    }
-
-    /* ── 理解度グラフ ── */
-    .chart-container {
-      padding: 4px 16px 8px;
-    }
-    #comp-chart {
-      display: block;
-      width: 100%;
-    }
-    .action-btn-danger {
-      border-color: #fca5a5;
-      color: #dc2626;
-    }
-    .action-btn-danger:hover {
-      background: #fef2f2;
-      border-color: #f87171;
-      color: #b91c1c;
-    }
-    .log-ai-actions {
-      display: flex;
-      gap: 8px;
-      margin-top: 10px;
-      padding-top: 8px;
-      border-top: 1px solid var(--border, #f3f4f6);
-      flex-wrap: wrap;
-    }
-    .log-action-btn.ai-diag-btn {
-      color: var(--primary, #4f46e5);
-      border-color: var(--primary, #4f46e5);
-    }
-    .log-action-btn.ai-lesson-btn {
-      color: #0d9488;
-      border-color: #0d9488;
-    }
-    .log-action-btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-  `;
-  document.head.appendChild(style);
-}
-
 /** form-panel 上部にサブナビゲーションを挿入する */
 function renderSubNav() {
   const panel = document.getElementById('form-panel');
@@ -885,6 +589,15 @@ function loadLogIntoReportForm(log) {
   if (lessonContentEl) lessonContentEl.value = log.lessonContent || '';
 }
 
+/**
+ * 授業ログの1フィールド分のアコーディオン表示HTMLを生成する。
+ * value が空（未入力）の場合は何も出力しない。
+ */
+function renderField(label, value) {
+  if (!value) return '';
+  return `<div class="accordion-field"><span class="accordion-field-label">${label}：</span>${escapeHtml(value).replace(/\n/g, '<br>')}</div>`;
+}
+
 function renderHistoryView() {
   const historySec = document.getElementById('section-history');
   if (!historySec) return;
@@ -978,11 +691,11 @@ function renderHistoryView() {
                   <span class="mini-bar"><span class="mini-bar-fill" style="width:${Math.round(comp / 10 * 100)}%"></span></span>
                   <span class="accordion-comp-num">${comp} / 10</span>
                 </div>` : ''}
-              ${log.instructorNotes ? `<div class="accordion-field"><span class="accordion-field-label">講師メモ：</span>${escapeHtml(log.instructorNotes).replace(/\n/g, '<br>')}</div>` : ''}
-              ${log.takeaways       ? `<div class="accordion-field"><span class="accordion-field-label">抽象化・転用メモ：</span>${escapeHtml(log.takeaways).replace(/\n/g, '<br>')}</div>` : ''}
-              ${log.attitude        ? `<div class="accordion-field"><span class="accordion-field-label">学習態度：</span>${escapeHtml(log.attitude).replace(/\n/g, '<br>')}</div>` : ''}
-              ${log.homeworkStatus  ? `<div class="accordion-field"><span class="accordion-field-label">宿題状況：</span>${escapeHtml(log.homeworkStatus).replace(/\n/g, '<br>')}</div>` : ''}
-              ${log.unit            ? `<div class="accordion-field"><span class="accordion-field-label">単元/結果：</span>${escapeHtml(log.unit).replace(/\n/g, '<br>')}</div>` : ''}
+              ${renderField('講師メモ', log.instructorNotes)}
+              ${renderField('抽象化・転用メモ', log.takeaways)}
+              ${renderField('学習態度', log.attitude)}
+              ${renderField('宿題状況', log.homeworkStatus)}
+              ${renderField('単元/結果', log.unit)}
             </div>
             <div class="log-ai-actions">
               <button type="button" class="log-action-btn ai-diag-btn" data-logid="${logId}">
@@ -2666,7 +2379,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  injectSubNavStyles();
   renderSubNav();
   initSections();
   initStudents(); // localStorage からタブ一覧・基本情報を復元（ページリロード対策）
