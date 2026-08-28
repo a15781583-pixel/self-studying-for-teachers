@@ -1,3 +1,13 @@
+/** 数値変換ヘルパー: 数値化できない値は 0 として扱う（スコア差分計算などで使用） */
+function num(v) {
+  return Number(v) || 0;
+}
+
+/** 共通ヘルパー: id指定要素へのイベント登録（要素が存在しない場合は何もしない） */
+function on(id, event, fn) {
+  document.getElementById(id)?.addEventListener(event, fn);
+}
+
 function renderStars(rawScore) {
   const score = Math.min(Math.max(Number(rawScore) || 0, 0), 5);
   return { score, stars: '★'.repeat(score) + '☆'.repeat(5 - score) };
@@ -627,7 +637,7 @@ function renderHistoryView() {
       ? pastData.aiDiagnostics[pastData.aiDiagnostics.length - 2]
       : null;
     const { score, stars } = renderStars(lastDiag.overallScore);
-    const pScore = prevDiag ? (Number(prevDiag.overallScore) || 0) : null;
+    const pScore = prevDiag ? num(prevDiag.overallScore) : null;
     const diff   = pScore !== null ? score - pScore : null;
 
     html += `
@@ -1268,8 +1278,8 @@ async function runDiagnosisGeneration(apiKey, formData, lessonDate, studentId, t
   const scoreDiffText = (pastData && pastData.aiDiagnostics.length > 1 && lastDiag)
     ? (() => {
         const prev = pastData.aiDiagnostics[pastData.aiDiagnostics.length - 2];
-        const d = (Number(lastDiag.overallScore) || 0) - (Number(prev?.overallScore) || 0);
-        return `${d >= 0 ? '+' : ''}${d}（前回 ${Number(prev?.overallScore) || 0} → 直近 ${Number(lastDiag.overallScore) || 0}）`;
+        const d = num(lastDiag.overallScore) - num(prev?.overallScore);
+        return `${d >= 0 ? '+' : ''}${d}（前回 ${num(prev?.overallScore)} → 直近 ${num(lastDiag.overallScore)}）`;
       })()
     : '初回診断のため比較なし';
 
@@ -2200,6 +2210,22 @@ function getValidatedFormContext() {
   return { formData, lessonDate, studentId: 'std_' + students[currentIndex].id };
 }
 
+// 授業記録の保存処理の共通化
+// gen-btn.onclick と save-log-btn.onclick で完全に重複していた
+// 「saveOrUpdateLessonLog の呼び出し→失敗時のエラーログ＋トースト表示」を1箇所にまとめる。
+// 成功時は saveOrUpdateLessonLog の戻り値（action）をそのまま返し、
+// 失敗（例外）時は console.error + showToast のみ行い null を返す。
+// 呼び出し側は戻り値が null かどうかで成功/失敗を判定し、以降の処理を分岐させる。
+function trySaveLessonLog(studentId, formData, lessonDate) {
+  try {
+    return saveOrUpdateLessonLog(studentId, formData, lessonDate);
+  } catch (err) {
+    console.error('授業記録の保存に失敗しました:', err);
+    showToast('授業記録の保存に失敗しました。時間をおいて再度お試しください', 'error');
+    return null;
+  }
+}
+
 function injectSaveLogButton() {
   // HTML に既存のボタンがあればそのまま使い、なければ動的生成して gen-btn の直後に挿入
   let btn = document.getElementById('save-log-btn');
@@ -2224,18 +2250,12 @@ function injectSaveLogButton() {
       // runDiagnosisGeneration を呼ぶ前に必ず saveOrUpdateLessonLog を実行する。
       // （runDiagnosisGeneration 側は「ログは保存済み」前提で実装されているため、
       //   ここで保存しておかないと診断結果だけが残りログが残らない状態になる）
-      // 修正②: saveOrUpdateLessonLog が失敗（例外）した場合、ここで捕捉して
-      // エラートーストを表示する。未処理のまま診断生成に進んでしまうと
+      // 修正②: trySaveLessonLog が失敗（例外）した場合は null が返る。
+      // 未処理のまま診断生成に進んでしまうと
       // ログが保存されていないのに診断結果だけが残る不整合が起きるため、
-      // 失敗時はここで処理を中断する。
-      let action;
-      try {
-        action = saveOrUpdateLessonLog(studentId, formData, lessonDate);
-      } catch (err) {
-        console.error('授業記録の保存に失敗しました:', err);
-        showToast('授業記録の保存に失敗しました。時間をおいて再度お試しください', 'error');
-        return;
-      }
+      // 失敗時はここで処理を中断する（エラーログ・トースト表示は trySaveLessonLog 内で実施済み）。
+      const action = trySaveLessonLog(studentId, formData, lessonDate);
+      if (action === null) return;
       showToast(action === 'updated' ? '授業記録を更新しました ✓' : '授業記録を保存しました ✓');
       // saveOrUpdateLessonLog 内で _editingLogId がクリアされるため、
       // 保存/更新ボタンの表示（編集中ラベル・キャンセルボタン）を最新状態に同期する
@@ -2265,17 +2285,12 @@ function injectSaveLogButton() {
 
     const wasEditing = !!_editingLogId; // 保存前に編集モードを記憶
 
-    // 修正②: saveOrUpdateLessonLog が失敗（例外）した場合、ここで捕捉して
-    // エラートーストを表示する。未処理のまま以降のフォームリセットや
-    // 履歴モードへの遷移が走ると、保存に失敗したことにユーザーが気づけない。
-    let action;
-    try {
-      action = saveOrUpdateLessonLog(studentId, formData, lessonDate);
-    } catch (err) {
-      console.error('授業記録の保存に失敗しました:', err);
-      showToast('授業記録の保存に失敗しました。時間をおいて再度お試しください', 'error');
-      return;
-    }
+    // 修正②: trySaveLessonLog が失敗（例外）した場合は null が返る。
+    // 未処理のまま以降のフォームリセットや履歴モードへの遷移が走ると、
+    // 保存に失敗したことにユーザーが気づけない（エラーログ・トースト表示は
+    // trySaveLessonLog 内で実施済み）。
+    const action = trySaveLessonLog(studentId, formData, lessonDate);
+    if (action === null) return;
     showToast(action === 'updated' ? '授業記録を更新しました ✓' : '授業記録を保存しました ✓');
     resetLessonContentField();   // switchMode/restoreForm の前に実行
 
@@ -2335,7 +2350,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  document.getElementById('f-name')?.addEventListener('input', e => {
+  on('f-name', 'input', e => {
     const name = e.target.value.trim();
     students[currentIndex].tabName = name || students[currentIndex].defaultName;
     const labels = document.querySelectorAll('#tab-list .tab-label');
@@ -2345,7 +2360,7 @@ document.addEventListener('DOMContentLoaded', () => {
     saveStudentsTabs(); // タブ名（生徒名）の変更を即時永続化
   });
 
-  document.getElementById('test-add-btn')?.addEventListener('click', () => {
+  on('test-add-btn', 'click', () => {
     const list = document.getElementById('test-list');
   
     list.querySelectorAll('.test-entry').forEach(entry => {
@@ -2358,7 +2373,7 @@ document.addEventListener('DOMContentLoaded', () => {
     scrollPanelToBottom();
   });
 
-  document.getElementById('goal-add-btn')?.addEventListener('click', () => {
+  on('goal-add-btn', 'click', () => {
     const list   = document.getElementById('short-goal-list');
     const newIdx = list.querySelectorAll('.goal-entry').length;
     list.appendChild(createGoalEntryElement(createShortTermGoalEntry(), newIdx));
@@ -2370,47 +2385,35 @@ document.addEventListener('DOMContentLoaded', () => {
   // change を追加しているのは、test-grade-select（学年セレクト）と
   // test-date-input（日付入力）がブラウザによっては input だけでは捕捉できないケースがあるため。
   ['input', 'change'].forEach(evt => {
-    document.getElementById('test-list')?.addEventListener(evt, () => {
+    on('test-list', evt, () => {
       students[currentIndex].data.tests = collectTestEntries();
       saveStudentsTabs();
     });
   });
 
-  document.getElementById('short-goal-list')?.addEventListener('input', () => {
+  on('short-goal-list', 'input', () => {
     students[currentIndex].data.shortTermGoals = collectGoalEntries();
     saveStudentsTabs();
   });
 
   /* タブ・データ管理ボタン */
-  document.getElementById('tab-add-btn')?.addEventListener('click', addStudent);
+  on('tab-add-btn', 'click', addStudent);
 
-  document.getElementById('tab-summary-btn')?.addEventListener('click', renderSummaryPanel);
-  document.getElementById('tab-export-btn')?.addEventListener('click', exportAllData);
-  document.getElementById('tab-import-btn')?.addEventListener('click', () => {
+  on('tab-summary-btn', 'click', renderSummaryPanel);
+  on('tab-export-btn', 'click', exportAllData);
+  on('tab-import-btn', 'click', () => {
     document.getElementById('import-file-input')?.click();
   });
-  document.getElementById('import-file-input')?.addEventListener('change', e => {
+  on('import-file-input', 'change', e => {
     if (e.target.files[0]) importData(e.target.files[0]);
     e.target.value = '';
   });
 
-  document.getElementById('basic-info-unlock-btn')?.addEventListener('click', () => {
-    const nameInput   = document.getElementById('f-name');
-    const gradeSelect = document.getElementById('f-grade');
-    const unlockBtn   = document.getElementById('basic-info-unlock-btn');
-
-    if (nameInput) {
-      nameInput.disabled = false;
-      nameInput.closest('.field')?.classList.remove('field-locked');
-      nameInput.focus();
-    }
-    if (gradeSelect) {
-      gradeSelect.disabled = false;
-      gradeSelect.closest('.field')?.classList.remove('field-locked');
-    }
-    if (unlockBtn) {
-      unlockBtn.style.display = 'none';
-    }
+  on('basic-info-unlock-btn', 'click', () => {
+    // updateBasicInfoLock を「常にロック解除扱い」で呼び出すことで、
+    // f-name/f-grade の disabled解除・.field-locked除去・unlockBtn非表示を一括反映する
+    updateBasicInfoLock({ data: {} });
+    document.getElementById('f-name')?.focus();
   });
 
   renderSubNav();
@@ -2421,7 +2424,7 @@ document.addEventListener('DOMContentLoaded', () => {
   injectSaveLogButton();
 
   /* APIキー 表示/非表示トグル */
-  document.getElementById('api-key-toggle')?.addEventListener('click', () => {
+  on('api-key-toggle', 'click', () => {
     const input   = document.getElementById('api-key');
     const icon    = document.querySelector('#api-key-toggle .ti');
     const isHidden = input.type === 'password';
