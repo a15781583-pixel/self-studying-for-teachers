@@ -1030,7 +1030,39 @@ function renderTabs() {
   }
 }
 
+/**
+ * ログ編集中（_editingLogId 設定済み）にタブ切替・生徒追加・生徒削除が
+ * 行われた場合の保護処理。
+ *
+ * 背景（バグ修正）：switchMode() は編集中に「授業記録」以外へ移動する際、
+ * 確認ダイアログ→編集状態解除→restoreForm() でフォームを元に戻す、という
+ * 保護を行っていたが、switchTab / addStudent / removeStudent はこの保護を
+ * 経由せず無条件に saveCurrentForm() を呼んでいたため、
+ *   1) 編集中のログ値（f-comp/f-attitude/f-notes/f-takeaways/lesson-date等）が
+ *      現在の生徒の基本データとしてそのまま上書き保存されてしまう（データ汚染）
+ *   2) _editingLogId がグローバルなためタブを跨いでも保持され続け、
+ *      別生徒側で保存すると存在しない logId を更新しようとして何も保存されない
+ *      まま「更新しました」と表示される（サイレントなデータ消失）
+ * という問題が起きていた。
+ *
+ * このヘルパーを各操作の先頭で呼び、編集中であれば確認の上で編集状態を破棄・
+ * リセットしてから処理を続行することで、上記の汚染・消失を防ぐ。
+ *
+ * @returns {boolean} true: 処理を続行してよい / false: ユーザーがキャンセルしたため中断すべき
+ */
+function guardUnsavedLogEdit() {
+  if (!_editingLogId) return true;
+  if (!confirm('編集中の内容は保存されません。移動しますか？')) return false;
+  // 編集状態を解除し、フォームを生徒の基本データに戻してから saveCurrentForm() を呼ぶ
+  // （ログ編集中のデータが student.data に上書きされるのを防ぐ）
+  _editingLogId = null;
+  restoreForm(students[currentIndex]);
+  updateEditModeUI();
+  return true;
+}
+
 function switchTab(idx) {
+  if (!guardUnsavedLogEdit()) return;
   saveCurrentForm();
   currentIndex = idx;
   saveStudentsTabs(); // currentIndex の変更を永続化
@@ -1039,6 +1071,7 @@ function switchTab(idx) {
 }
 
 function addStudent() {
+  if (!guardUnsavedLogEdit()) return;
   saveCurrentForm();
   students.push(createStudent());
   currentIndex = students.length - 1;
@@ -1051,6 +1084,7 @@ function addStudent() {
 
 function removeStudent(idx) {
   if (students.length === 1) return;
+  if (!guardUnsavedLogEdit()) return;
   saveCurrentForm();
   const removedKey = studentKey('std_' + students[idx].id);
   localStorage.removeItem(removedKey);
