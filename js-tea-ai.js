@@ -1,4 +1,4 @@
-  /**
+/**
  * js-tea-ai.js
  * ------------------------------------------------------------
  * AI（Gemini）連携まわりを app-講師用AI作成.js（core）から分離したファイル。
@@ -463,11 +463,10 @@ async function runAiGeneration(apiKey, triggerBtn, {
 
 async function runDiagnosisGeneration(apiKey, formData, lessonDate, studentId, triggerBtn) {
   const pastData     = getStudentData(studentId);
-  // ※ previousLogs内の各logは formData.scores（テスト・単元結果）に対応する
-  //   log.scores フィールドを保持している前提で、下記プロンプトの
-  //   【直近の指導経過】ブロックに履歴推移として渡している。
-  //   core（app-講師用AI作成.js）側のログ保存処理でこのフィールド名が
-  //   異なる／保持されていない場合は、そちらに合わせて要修正。
+  // ※ previousLogs内の各logは、formData.scores（テスト・単元結果）が
+  //   保存時に buildLessonLogPayload() 経由で log.unit として格納されている
+  //   （core: app-講師用AI作成.js 側で確認済み）。下記プロンプトの
+  //   【直近の指導経過】ブロックでは、この log.unit を履歴推移として渡す。
   const previousLogs = pastData ? pastData.lessonLogs.slice(-10) : [];
   const lastDiag     = (pastData && pastData.aiDiagnostics.length > 0)
     ? pastData.aiDiagnostics[pastData.aiDiagnostics.length - 1] : null;
@@ -595,7 +594,7 @@ ${lastDiag ? `前回の総合スコア: ${lastDiag.overallScore} / 5\n前回の�
 【直近の指導経過（最大10件）】
 ${previousLogs.length > 0 ? previousLogs.map((log, index) => `
 ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehension(log.comprehension)}/10
-   テスト・単元結果: ${wrapFreeText(log.scores, 'なし')}
+   テスト・単元結果: ${wrapFreeText(log.unit, 'なし')}
    所見: ${wrapFreeText(log.instructorNotes)}
    転用メモ: ${wrapFreeText(log.takeaways, 'なし')}
 `).join('') : '過去の授業ログはありません'}
@@ -788,8 +787,8 @@ async function runLessonPlanGeneration(apiKey, formData, lessonDate, studentId, 
   const sameSubjectLogs = pastData
     ? pastData.lessonLogs.filter(log => splitSubjects(log.subject).includes(targetSubject))
     : [];
-  // ※ log.scores（テスト・単元結果）の保持前提については runDiagnosisGeneration 側の
-  //   コメントを参照。core側のログ保存スキーマと要整合確認。
+  // ※ log.unit（テスト・単元結果。formData.scores が保存時にこの名前で
+  //   格納される）の対応関係については runDiagnosisGeneration 側のコメントを参照。
   const recentLogs = (sameSubjectLogs.length > 0 ? sameSubjectLogs : (pastData?.lessonLogs || [])).slice(-5);
 
   const lessonPersona = getSubjectExpertPersona(targetSubject);
@@ -839,7 +838,7 @@ ${wrapFreeText(formData.concerns)}
 【直近の授業履歴（最大5件）】
 ${recentLogs.length > 0
   ? recentLogs.map((log, i) =>
-      `${i + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehension(log.comprehension)}/10\n   テスト・単元結果: ${wrapFreeText(log.scores, 'なし')}\n   メモ: ${wrapFreeText(log.instructorNotes)}\n   転用メモ: ${wrapFreeText(log.takeaways, 'なし')}`
+      `${i + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehension(log.comprehension)}/10\n   テスト・単元結果: ${wrapFreeText(log.unit, 'なし')}\n   メモ: ${wrapFreeText(log.instructorNotes)}\n   転用メモ: ${wrapFreeText(log.takeaways, 'なし')}`
     ).join('\n')
   : '過去の授業ログはありません'}
 
