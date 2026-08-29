@@ -32,13 +32,32 @@
 const GEMINI_MODEL    = 'gemini-3.6-flash';
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent`;
 
-async function fetchGeminiWithRetry(apiKey, requestBody, maxRetries = 3) {
+// requestBody に加えて options（第3引数）で挙動を制御する。
+//   - maxRetries    : 503/429時の最大リトライ回数（デフォルト3）
+//   - useGrounding  : true にすると Google Search によるグラウンディング用の
+//                     tools パラメータ（{ google_search: {} }）をリクエスト
+//                     ボディへ自動付与する。
+// 【重要な制約】Gemini APIは現状、responseSchema（構造化JSON強制 /
+// responseMimeType: 'application/json'）と検索ツール（グラウンディング）の
+// 併用に制約があるため、useGrounding: true で呼び出す際は
+// generationConfig に responseSchema / responseMimeType を含めないこと。
+// JSON生成が必要な場合は、①useGrounding:true・スキーマなしで検索結果を
+// テキストとして取得 → ②その結果をプロンプトに埋め込み、useGrounding:false・
+// スキーマありで通常のJSON生成、という2段階呼び出しに設計すること
+// （呼び出し側の runAiGeneration 参照）。
+async function fetchGeminiWithRetry(apiKey, requestBody, options = {}) {
+  const { maxRetries = 3, useGrounding = false } = options;
+
+  const body = useGrounding
+    ? { ...requestBody, tools: [...(requestBody.tools || []), { google_search: {} }] }
+    : requestBody;
+
   for (let i = 0; i < maxRetries; i++) {
     try {
       const response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -70,14 +89,25 @@ async function fetchGeminiWithRetry(apiKey, requestBody, maxRetries = 3) {
   }
 }
 
-function parseGeminiResponse(data) {
+// candidates[0].content.parts からプレーンテキストを取り出す共通ヘルパー。
+// グラウンディング（Google Search）呼び出しはJSONではなくテキストで
+// 返ってくるため、JSON.parseを行わずこちらを直接利用する。
+function extractGeminiText(data) {
   if (data.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
     throw new Error('レスポンスがトークン上限に達しました。入力情報を減らすか、しばらく時間をおいて再試行してください。');
   }
-  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  const rawText = (data.candidates?.[0]?.content?.parts || [])
+    .map(p => p.text || '')
+    .join('')
+    .trim();
   if (!rawText) throw new Error('AIからのレスポンスを取得できませんでした。');
+  return rawText;
+}
+
+function parseGeminiResponse(data) {
+  const rawText = extractGeminiText(data);
   try {
-    return JSON.parse(rawText.trim());
+    return JSON.parse(rawText);
   } catch (e) {
     throw new Error('AIレスポンスの解析に失敗しました。しばらくしてから再試行してください。');
   }
@@ -233,6 +263,32 @@ function buildGoalGapContext(formData, pastData, relevantLogs) {
     lines.push('短期目標の期限: 本文からの自動抽出はできませんでした。短期目標の文中に期限や達成基準の記載があればそれを優先し、なければ理解度傾向・スコア推移から乖離の大小を定性的に判断してください。');
   }
 
+  // ----- 定性データ（所見テキスト）の乖離分析への活用 -----
+  // 数値指標（理解度スコア・AI診断スコア）だけでは「なぜ乖離が生じているか」
+  // までは見えないため、講師所見（instructorNotes）・現在の課題（concerns）・
+  // 学習態度（attitude）・抽象化メモ（takeaways）等の自由記述テキストを
+  // 加工・要約せずそのまま渡し、言葉遣いや頻出ワードからの背景推測は
+  // 生成AI側（プロンプト指示）に委ねる。
+  const qualitativeLogs = logs.slice(-8);
+  const qualitativeNotes = qualitativeLogs
+    .map(l => {
+      const parts = [];
+      if (l.instructorNotes) parts.push(`所見: ${l.instructorNotes}`);
+      if (l.takeaways)       parts.push(`転用メモ: ${l.takeaways}`);
+      return parts.length > 0 ? `[${l.date || '日付不明'}] ${parts.join(' / ')}` : null;
+    })
+    .filter(Boolean);
+
+  lines.push('--- 定性データ（所見テキスト・乖離の背景推測材料） ---');
+  lines.push(`現在の課題（自由記述）: ${formData.concerns || '（記載なし）'}`);
+  lines.push(`学習態度・自習状況（自由記述）: ${formData.attitude || '（記載なし）'}`);
+  if (qualitativeNotes.length > 0) {
+    lines.push(`直近の講師所見・転用メモ（最大8件）:`);
+    qualitativeNotes.forEach((note, i) => lines.push(`  ${i + 1}. ${note}`));
+  } else {
+    lines.push('直近の講師所見・転用メモ: 記録なし');
+  }
+
   return lines.join('\n');
 }
 
@@ -293,18 +349,59 @@ function addAIDiagnostics(studentId, aiResult) {
 /* ===== AI生成の実行フロー ===== */
 
 // AI生成処理（診断／次回授業案）の共通ラッパー
-// capturedIndex取得→ボタン無効化→ローディング表示→fetchGeminiWithRetry→
-// parseGeminiResponse→エラー処理→finallyでボタン復帰、という共通の骨格をここに集約する。
+// capturedIndex取得→ボタン無効化→ローディング表示→(必要ならグラウンディング検索)→
+// fetchGeminiWithRetry→parseGeminiResponse→エラー処理→finallyでボタン復帰、
+// という共通の骨格をここに集約する。
 // プロンプト組み立て・スキーマ・成功時処理だけを呼び出し側から設定値として渡す。
-async function runAiGeneration(apiKey, triggerBtn, { loadingTitle, buildPrompt, schema, maxOutputTokens, errorLabel, onSuccess }) {
+//
+// 【グラウンディング（Web参照）について】
+// useGrounding: true を指定すると、本処理は以下の2段階呼び出しを行う。
+//   ①buildGroundingQuery() が返すクエリを使い、Google Search ツール付き・
+//     responseSchemaなしでGeminiを呼び出し、目標関連情報をテキストとして収集する
+//     （responseSchemaと検索ツールは現状併用不可のため、あえて別呼び出しにする）。
+//   ②①で得たテキスト（groundingText）を buildPrompt(groundingText) に渡し、
+//     通常どおりresponseSchema付き・検索ツールなしでJSON生成を行う。
+// buildGroundingQuery が未指定、または呼び出し失敗時は、検索結果なし（空文字）
+// のまま②のみで続行する（グラウンディングは通常生成を止めるほど致命的では
+// ないため、フォールバックしてでも生成自体は完了させる）。
+async function runAiGeneration(apiKey, triggerBtn, {
+  loadingTitle, buildPrompt, schema, maxOutputTokens, errorLabel, onSuccess,
+  useGrounding = false, buildGroundingQuery, groundingLoadingTitle
+}) {
   const capturedIndex = currentIndex; // Race Condition 対策: await 前に currentIndex をキャプチャ
   if (triggerBtn) triggerBtn.disabled = true;
-  setLoadingText(loadingTitle);
   showState('state-loading');
 
   try {
+    // ①目標関連情報のWeb検索によるグラウンディング（該当する場合のみ）
+    let groundingText = '';
+    if (useGrounding && typeof buildGroundingQuery === 'function') {
+      setLoadingText(groundingLoadingTitle || '目標に関する情報をWebで確認中...');
+      const groundingQuery = buildGroundingQuery();
+      if (groundingQuery) {
+        try {
+          const groundingData = await fetchGeminiWithRetry(
+            apiKey,
+            {
+              contents: [{ parts: [{ text: groundingQuery }] }],
+              generationConfig: { temperature: 0.2, maxOutputTokens: 2048 }
+            },
+            { useGrounding: true }
+          );
+          groundingText = extractGeminiText(groundingData);
+        } catch (groundingErr) {
+          // Web検索での事前情報収集に失敗しても致命的エラーにはせず、
+          // 検索結果なしで通常のJSON生成にフォールバックする。
+          console.warn('目標関連情報のWeb検索（グラウンディング）に失敗したため、検索結果なしで続行します:', groundingErr);
+          groundingText = '';
+        }
+      }
+    }
+
+    // ②収集結果（groundingText）をプロンプトに埋め込みつつ、通常どおりJSON生成
+    setLoadingText(loadingTitle);
     const data = await fetchGeminiWithRetry(apiKey, {
-      contents: [{ parts: [{ text: buildPrompt() }] }],
+      contents: [{ parts: [{ text: buildPrompt(groundingText) }] }],
       generationConfig: {
         temperature: 0.3,
         maxOutputTokens,
@@ -367,7 +464,49 @@ async function runDiagnosisGeneration(apiKey, formData, lessonDate, studentId, t
 
   const goalGapContext = buildGoalGapContext(formData, pastData);
 
-  const buildPrompt = () => `
+  // 長期・短期目標に含まれる試験名・志望校名・資格名等の実際の特性
+  // （出題傾向・配点・合格ライン・出願期限等）、および講師メモ・学習態度欄に
+  // 記載された参考書名・教材名や勉強法の一般的な評判・指導知見を、
+  // Google検索でまとめて確認するためのクエリ。
+  // ※ formData には参考書名・使用教材専用のフィールドが存在しないため、
+  //   講師メモ（notes）・学習態度（attitude）の自由記述から該当箇所を
+  //   拾う前提とする（5. 参考書・勉強法の欠点と改善点の提示 対応）。
+  // 目標・教材関連の手がかりがいずれも見当たらない場合は検索自体を
+  // 行わない（null を返す）。
+  const buildDiagnosisGroundingQuery = () => {
+    const goalText     = [formData.goal, formData.shortTermGoals].filter(Boolean).join('\n');
+    const materialText = [formData.notes, formData.attitude].filter(Boolean).join('\n');
+    if (!goalText.trim() && !materialText.trim()) return null;
+
+    const goalSection = goalText.trim() ? `
+以下は、ある生徒の長期目標・短期目標の記述です。この中に試験名・志望校名（学部・学科含む）・資格名など、具体的に検索可能な固有名詞が含まれている場合、Google検索を用いて、その試験・学校・資格に関する実際の特性を調べてください。
+特に、出題傾向、配点、合格ライン（合格最低点・偏差値目安）、出願期限・試験日程、倍率など、指導計画に直結する情報を優先してください。
+
+【長期目標】
+${formData.goal || '（未設定）'}
+
+【短期目標】
+${formData.shortTermGoals || '（未設定）'}
+`.trim() : '';
+
+    const materialSection = materialText.trim() ? `
+以下は、ある生徒の講師メモ・学習態度欄の自由記述です。この中に参考書名・問題集名・アプリ名など具体的な教材名、または特定の勉強法・学習方法の記載がある場合、Google検索を用いて、その教材・勉強法についての一般的な評判（レビュー・口コミ）や、指導者・専門家による評価（長所・短所）を調べてください。
+
+【講師メモ】
+${formData.notes || '（記載なし）'}
+
+【学習態度・自習状況】
+${formData.attitude || '（記載なし）'}
+`.trim() : '';
+
+    return `
+${[goalSection, materialSection].filter(Boolean).join('\n\n')}
+
+簡潔な日本語の箇条書きで、確認できた情報のみをまとめてください（推測や一般論は書かないこと）。該当する固有名詞・教材名・勉強法が見当たらない場合、またはWeb検索でも情報が確認できない場合は、その旨を一言で述べるだけで構いません。
+`.trim();
+  };
+
+  const buildPrompt = (groundingInfo) => `
 ${diagnosisPersonaIntro}
 このチームで、生徒の基本情報、過去の学習変化、今回の授業内容を踏まえ、保護者も納得する高品質な診断レポートを作成してください。
 
@@ -405,7 +544,10 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehen
 
 【目標乖離・逆算分析】
 ${goalGapContext}
-
+${groundingInfo ? `
+【目標関連情報のWeb検索結果（試験・志望校・資格の実際の特性）】
+${groundingInfo}
+` : ''}
 【指示】
 - 学習傾向分析の数値（理解度の傾向・スコア変化）を必ず言及し、変化を具体的に評価してください。
 - 過去のデータと比較し、「成長できた点」「継続して取り組む課題」を具体的に述べてください。
@@ -416,6 +558,12 @@ ${goalGapContext}
 - 短期目標の達成状況・進捗を具体的に評価し、「今すぐ取り組むべきこと」に反映してください。
 - 週間プラン・月間プランは、科目ごとのバランスを考慮し、短期目標の達成ステップと長期目標への道筋を構成してください。
 - 【目標乖離・逆算分析】の内容をもとに、現ペースで長期目標に到達可能かを判定し、乖離があれば具体的な立て直し策を示すこと。
+- 長期・短期目標に含まれる試験名・志望校名・資格名等があれば、上記のWeb検索結果をもとに出題傾向・配点・合格ライン・出願期限等の実際の特性を踏まえて乖離分析・逆算プランに反映すること。検索結果が得られなかった場合は、その旨を踏まえた上で一般的な傾向として妥当な想定を置いて判断すること。
+- 講師メモ・学習態度欄に参考書名・問題集名・アプリ名等の具体的な教材名、または特定の勉強法・学習方法の記載がある場合、上記のWeb検索結果（教材・勉強法の評判や指導知見）を踏まえて、その教材・勉強法の長所・短所と具体的な改善提案を materialsFeedback に記載すること（教材・勉強法ごとに1エントリとし、materialName・aiFeedback・improvementSuggestion をそれぞれ具体的に記載する）。該当する記載が無い場合、またはWeb検索結果が得られず言及できる材料がない場合は materialsFeedback を空配列とすること。
+- 【目標乖離・逆算分析】内の所見テキスト（現在の課題・学習態度・講師所見・転用メモ）に含まれる言葉遣いや頻出する課題ワードから、生徒の学習習慣・心理状態・つまずきの根本原因を推測し、スコアだけでは見えない現状を言語化すること。推測は断定せず、所見のどの記述から読み取れるかが分かる形で述べること。
+- 過去ログ（理解度の推移パターン・講師所見・転用メモ）の傾向から、この生徒に最も当てはまる学習タイプ（例: 視覚型・反復型・対話型など、複数該当する場合はその組み合わせも可）を推定し、判断の根拠となった具体的な記述・パターンとともに learningStyleInsight に記載すること。断定はせず、あくまで推定である旨がわかる書き方にすること。
+- 上記で推定した学習タイプを踏まえ、この生徒に効果的な指導アプローチ（説明の仕方・教材の見せ方・演習と対話のバランスなど）を recommendedTeachingApproach に具体的に記載すること。単なる一般論ではなく、この生徒固有の傾向に紐づけて述べること。
+- weeklyPlan／monthlyPlanには「講師が授業内で行う指導方針・進め方」のみを記述し、生徒が一人で取り組むべき自習タスクはここに書かないこと。生徒が一人で行う自習タスクは、必ず selfStudyPlan フィールドに分離して記載すること。selfStudyPlan は科目ごとに、優先順位（例:高/中/低）・使用教材・想定所要時間（分）を明記した具体的なタスクリストとすること。
 `.trim();
 
   await runAiGeneration(apiKey, triggerBtn, {
@@ -423,6 +571,9 @@ ${goalGapContext}
     buildPrompt,
     maxOutputTokens: 8192,
     errorLabel: '診断の生成',
+    useGrounding: true,
+    buildGroundingQuery: buildDiagnosisGroundingQuery,
+    groundingLoadingTitle: '目標（試験・志望校等）の情報をWebで確認中...',
     schema: {
       type: 'OBJECT',
       properties: {
@@ -432,6 +583,32 @@ ${goalGapContext}
         improvements:    { type: 'ARRAY', items: { type: 'STRING' } },
         weeklyPlan:      { type: 'STRING' },
         monthlyPlan:     { type: 'STRING' },
+        // 生徒が一人で行う自習計画（科目別・優先順位付きタスク）。
+        // weeklyPlan/monthlyPlan（講師視点の指導方針）とは明確に分離し、
+        // 「講師が行う指導内容」と「生徒が一人で行うべきタスク」を混同しない。
+        selfStudyPlan: {
+          type: 'ARRAY',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              subject: { type: 'STRING' },
+              tasks: {
+                type: 'ARRAY',
+                items: {
+                  type: 'OBJECT',
+                  properties: {
+                    priority:         { type: 'STRING' },
+                    task:             { type: 'STRING' },
+                    materials:        { type: 'STRING' },
+                    estimatedMinutes: { type: 'INTEGER' }
+                  },
+                  required: ['priority', 'task', 'materials', 'estimatedMinutes']
+                }
+              }
+            },
+            required: ['subject', 'tasks']
+          }
+        },
         nextLessonPlan: {
           type: 'OBJECT',
           properties: {
@@ -453,14 +630,42 @@ ${goalGapContext}
             requiredPace: { type: 'STRING' }
           },
           required: ['milestones', 'requiredPace']
+        },
+        // 生徒ごとの効果的な指導法の提案。
+        // learningStyleInsight: 過去ログ（理解度パターン・所見の傾向）から推定した
+        //   学習タイプ（視覚型・反復型・対話型など）とその根拠。
+        // recommendedTeachingApproach: 推定した学習タイプを踏まえた、この生徒に
+        //   効果的な指導アプローチ。
+        learningStyleInsight:        { type: 'STRING' },
+        recommendedTeachingApproach: { type: 'STRING' },
+        // 参考書・使用教材や勉強法に対するAI所見・改善提案（任意項目）。
+        // formData には教材名専用のフィールドが無いため、講師メモ（notes）・
+        // 学習態度（attitude）等の自由記述に教材名や勉強法の記載がある場合のみ、
+        // buildDiagnosisGroundingQuery によるWeb検索結果（評判・指導知見）を
+        // 踏まえて生成AI側が判断・記載する。該当する記載が無ければ
+        // 空配列を返す想定のため、必須項目（required）には含めない。
+        materialsFeedback: {
+          type: 'ARRAY',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              materialName:          { type: 'STRING' }, // 教材名・勉強法名
+              aiFeedback:            { type: 'STRING' }, // AI所見（長所・短所）
+              improvementSuggestion: { type: 'STRING' }  // 改善提案
+            },
+            required: ['materialName', 'aiFeedback', 'improvementSuggestion']
+          }
         }
       },
       required: [
         'overallScore', 'overallComment', 'strengths', 'improvements',
-        'weeklyPlan', 'monthlyPlan', 'nextLessonPlan',
+        'weeklyPlan', 'monthlyPlan', 'selfStudyPlan', 'nextLessonPlan',
         'instructorAdvice', 'parentMessage', 'urgentAction',
-        'goalGapAnalysis', 'backwardPlan'
+        'goalGapAnalysis', 'backwardPlan',
+        'learningStyleInsight', 'recommendedTeachingApproach'
       ]
+      // ※ materialsFeedback は任意項目のため required には含めない
+      //   （教材名・勉強法への言及が無い場合は空配列が返る想定）。
     },
     onSuccess: (result, capturedIndex) => {
       addAIDiagnostics(studentId, result);
@@ -536,6 +741,7 @@ ${goalGapContext}
 - 指導のヒントとして、この生徒への効果的なアプローチを2〜3文で示してください。
 - 短期目標の期限が近い場合は、その達成を最優先した集中指導プランを示してください。
 - 今回の授業が目標達成の逆算スケジュール上どの位置づけかを明記し、遅れがあれば優先順位を明示すること。
+- objective／keyPoints／pitfalls／teachingTips には「講師が授業内で行う指導内容」のみを記載し、生徒が次回授業までに一人で取り組むべき宿題・自習課題は一切混在させないこと。生徒が一人で行うべきタスクは、必ず assignedSelfStudy フィールドに分離して記載すること。assignedSelfStudy は優先順位（例:高/中/低）・使用教材・想定所要時間（分）を明記した具体的なタスクリストとすること。
 `.trim();
 
   await runAiGeneration(apiKey, triggerBtn, {
@@ -550,9 +756,24 @@ ${goalGapContext}
         keyPoints:     { type: 'ARRAY', items: { type: 'STRING' } },
         pitfalls:      { type: 'ARRAY', items: { type: 'STRING' } },
         teachingTips:  { type: 'STRING' },
-        goalAlignment: { type: 'STRING' }
+        goalAlignment: { type: 'STRING' },
+        // 次回授業までに生徒が一人で行う宿題・自習課題。
+        // 授業計画（講師が授業内で行う指導内容）とは明確に分離する。
+        assignedSelfStudy: {
+          type: 'ARRAY',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              priority:         { type: 'STRING' },
+              task:             { type: 'STRING' },
+              materials:        { type: 'STRING' },
+              estimatedMinutes: { type: 'INTEGER' }
+            },
+            required: ['priority', 'task', 'materials', 'estimatedMinutes']
+          }
+        }
       },
-      required: ['objective', 'keyPoints', 'pitfalls', 'teachingTips', 'goalAlignment']
+      required: ['objective', 'keyPoints', 'pitfalls', 'teachingTips', 'goalAlignment', 'assignedSelfStudy']
     },
     onSuccess: (result, capturedIndex) => {
       students[capturedIndex].lessonPlanResult  = result;
@@ -569,6 +790,25 @@ ${goalGapContext}
 }
 
 /* ===== AI結果の描画 ===== */
+
+/* ===== 自習タスク（selfStudyPlan / assignedSelfStudy）共通レンダリングヘルパー ===== */
+// 「講師が行う指導内容」と「生徒が一人で行うべきタスク」の混同を防ぐため、
+// 自習タスク（{priority, task, materials, estimatedMinutes}）の
+// HTML/テキスト整形をここに集約し、renderResult / renderLessonPlanResult
+// 双方から共通利用する。
+
+function selfStudyTaskLine(t) {
+  const minutes = (t.estimatedMinutes || t.estimatedMinutes === 0) ? `${t.estimatedMinutes}分` : '目安時間未設定';
+  return `[${t.priority || '優先度未設定'}] ${t.task || ''}（教材: ${t.materials || '未指定'} / 想定所要時間: ${minutes}）`;
+}
+
+function renderSelfStudyTasksHTML(tasks) {
+  return (tasks || []).map(t => `<li>${escapeHtml(selfStudyTaskLine(t))}</li>`).join('');
+}
+
+function selfStudyTasksToText(tasks) {
+  return (tasks || []).map(t => `・${selfStudyTaskLine(t)}`).join('\n');
+}
 
 function renderLessonPlanResult(d, formData) {
   const subLine = [formData.grade, formData.subjects]
@@ -624,6 +864,13 @@ function renderLessonPlanResult(d, formData) {
       <div class="card-label"><i class="ti ti-flag-3"></i> 目標との関連</div>
       <div class="card-body">${escapeHtml(d.goalAlignment || '')}</div>
     </div>
+
+    <!-- 次回授業までの自習課題（生徒が一人で行うタスク） -->
+    ${(d.assignedSelfStudy || []).length > 0 ? `
+    <div class="result-card card-improvements">
+      <div class="card-label"><i class="ti ti-clipboard-list"></i> 次回授業までの自習課題（生徒が一人で行うタスク）</div>
+      <ul class="diag-list">${renderSelfStudyTasksHTML(d.assignedSelfStudy)}</ul>
+    </div>` : ''}
   `;
 
   document.getElementById('state-result').innerHTML = html;
@@ -645,6 +892,9 @@ ${d.teachingTips || ''}
 
 ■ 目標との関連
 ${d.goalAlignment || ''}
+
+■ 次回授業までの自習課題（生徒が一人で行うタスク）
+${(d.assignedSelfStudy || []).length > 0 ? selfStudyTasksToText(d.assignedSelfStudy) : '（なし）'}
 `.trim());
 
   const switchBtn = document.getElementById('switch-to-diagnosis-btn');
@@ -741,6 +991,21 @@ function renderResult(d, formData) {
       </div>
     </div>
 
+    <!-- 参考書・勉強法へのAI所見と改善提案（該当する記載がある場合のみ表示） -->
+    ${(d.materialsFeedback || []).length > 0 ? `
+    <div class="result-card card-neutral">
+      <div class="card-label"><i class="ti ti-books"></i> 参考書・勉強法へのAI所見と改善提案</div>
+      <div class="card-body">
+        ${d.materialsFeedback.map(mf => `
+          <div style="margin-bottom:10px">
+            <div style="font-weight:600;margin-bottom:4px">${escapeHtml(mf.materialName || '')}</div>
+            <div style="margin-bottom:2px"><span style="font-size:11px;font-weight:600;color:var(--text-muted,#6b7280)">AI所見: </span>${escapeHtml(mf.aiFeedback || '')}</div>
+            <div><span style="font-size:11px;font-weight:600;color:var(--text-muted,#6b7280)">改善提案: </span>${escapeHtml(mf.improvementSuggestion || '')}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>` : ''}
+
     <!-- 次回授業プラン -->
     ${d.nextLessonPlan ? `
     <div class="result-card card-neutral">
@@ -765,17 +1030,46 @@ function renderResult(d, formData) {
       </div>
     </div>` : ''}
 
-    <!-- 1週間の学習プラン -->
+    <!-- 生徒ごとの効果的な指導法の提案 -->
     <div class="result-card card-neutral">
-      <div class="card-label"><i class="ti ti-calendar-week"></i> 1週間の推奨学習プラン</div>
+      <div class="card-label"><i class="ti ti-brain"></i> 学習タイプの推定と効果的な指導アプローチ</div>
+      <div class="card-body">
+        <div style="margin-bottom:8px">
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted,#6b7280);margin-bottom:2px">推定される学習タイプとその根拠</div>
+          <div>${escapeHtml(d.learningStyleInsight || '')}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted,#6b7280);margin-bottom:2px">この生徒に効果的な指導アプローチ</div>
+          <div>${escapeHtml(d.recommendedTeachingApproach || '')}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1週間の学習プラン（講師の指導方針） -->
+    <div class="result-card card-neutral">
+      <div class="card-label"><i class="ti ti-calendar-week"></i> 1週間の推奨学習プラン（講師の指導方針）</div>
       <div class="card-body">${escapeHtml(d.weeklyPlan || '')}</div>
     </div>
 
-    <!-- 1ヶ月の目標 -->
+    <!-- 1ヶ月の目標（講師の指導方針） -->
     <div class="result-card card-neutral">
-      <div class="card-label"><i class="ti ti-calendar-month"></i> 1ヶ月の目標と方針</div>
+      <div class="card-label"><i class="ti ti-calendar-month"></i> 1ヶ月の目標と方針（講師の指導方針）</div>
       <div class="card-body">${escapeHtml(d.monthlyPlan || '')}</div>
     </div>
+
+    <!-- 自習プラン（生徒が一人で行うタスク） -->
+    ${(d.selfStudyPlan || []).length > 0 ? `
+    <div class="result-card card-improvements">
+      <div class="card-label"><i class="ti ti-clipboard-list"></i> 自習プラン（生徒が一人で行うタスク・科目別）</div>
+      <div class="card-body">
+        ${d.selfStudyPlan.map(sp => `
+          <div style="margin-bottom:10px">
+            <div style="font-weight:600;margin-bottom:4px">${escapeHtml(sp.subject || '')}</div>
+            <ul class="diag-list">${renderSelfStudyTasksHTML(sp.tasks)}</ul>
+          </div>
+        `).join('')}
+      </div>
+    </div>` : ''}
 
     <!-- 講師アドバイス -->
     <div class="result-card card-neutral">
@@ -823,11 +1117,25 @@ ${(d.strengths || []).map(s => `・${s}`).join('\n')}
 ■ 改善点
 ${(d.improvements || []).map(s => `・${s}`).join('\n')}
 
-■ 1週間の推奨学習プラン
+■ 参考書・勉強法へのAI所見と改善提案
+${(d.materialsFeedback || []).length > 0
+  ? d.materialsFeedback.map(mf => `【${mf.materialName || ''}】\nAI所見: ${mf.aiFeedback || ''}\n改善提案: ${mf.improvementSuggestion || ''}`).join('\n\n')
+  : '（該当する記載なし）'}
+
+■ 学習タイプの推定と効果的な指導アプローチ
+推定される学習タイプとその根拠: ${d.learningStyleInsight || ''}
+この生徒に効果的な指導アプローチ: ${d.recommendedTeachingApproach || ''}
+
+■ 1週間の推奨学習プラン（講師の指導方針）
 ${d.weeklyPlan || ''}
 
-■ 1ヶ月の目標と方針
+■ 1ヶ月の目標と方針（講師の指導方針）
 ${d.monthlyPlan || ''}
+
+■ 自習プラン（生徒が一人で行うタスク・科目別）
+${(d.selfStudyPlan || []).length > 0
+  ? d.selfStudyPlan.map(sp => `【${sp.subject || ''}】\n${selfStudyTasksToText(sp.tasks)}`).join('\n\n')
+  : '（なし）'}
 
 ■ 次回授業プラン
 ${d.nextLessonPlan ? `目標: ${d.nextLessonPlan.objective || ''}
