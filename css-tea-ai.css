@@ -89,3 +89,178 @@
   color: #0d9488;
   border-color: #0d9488;
 }
+
+/* ── 目標乖離カード（警告色系） ── */
+.card-goal-gap {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  border: 1px solid #f59e0b;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.card-goal-gap-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.card-goal-gap-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+.card-goal-gap-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #92400e;
+}
+.card-goal-gap-body {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.card-goal-gap-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #b45309;
+  line-height: 1;
+}
+.card-goal-gap-value small {
+  font-size: 11px;
+  font-weight: 400;
+  color: #92400e;
+  opacity: 0.8;
+}
+.card-goal-gap-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: #f59e0b;
+  color: #fff;
+  flex-shrink: 0;
+}
+.card-goal-gap-desc {
+  font-size: 12px;
+  line-height: 1.55;
+  color: #78350f;
+  opacity: 0.9;
+}
+.card-goal-gap.is-critical {
+  border-color: #dc2626;
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+}
+.card-goal-gap.is-critical .card-goal-gap-title,
+.card-goal-gap.is-critical .card-goal-gap-value {
+  color: #b91c1c;
+}
+.card-goal-gap.is-critical .card-goal-gap-badge {
+  background: #dc2626;
+}
+
+/* ── 逆算ロードマップ（マイルストーン） ── */
+.card-roadmap {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #f3f4f6);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.card-roadmap-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted, #6b7280);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.roadmap-step {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  padding-bottom: 18px;
+}
+.roadmap-step:last-child {
+  padding-bottom: 0;
+}
+.roadmap-step-marker {
+  position: relative;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--border, #f3f4f6);
+  color: var(--text-muted, #6b7280);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+.roadmap-step:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  top: 22px;
+  left: 11px;
+  width: 2px;
+  bottom: -18px;
+  background: var(--border, #f3f4f6);
+}
+.roadmap-step-content {
+  flex: 1;
+  min-width: 0;
+  padding-top: 1px;
+}
+.roadmap-step-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.roadmap-step-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text, #111827);
+}
+.roadmap-step-date {
+  font-size: 10px;
+  color: var(--text-muted, #6b7280);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.roadmap-step-desc {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-muted, #6b7280);
+}
+
+/* 状態別スタイル */
+.roadmap-step.completed .roadmap-step-marker {
+  background: #0d9488;
+  color: #fff;
+}
+.roadmap-step.completed:not(:last-child)::before {
+  background: #0d9488;
+}
+.roadmap-step.completed .roadmap-step-title {
+  color: #0d9488;
+}
+.roadmap-step.current .roadmap-step-marker {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: #fff;
+  box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.15);
+}
+.roadmap-step.current .roadmap-step-title {
+  color: #4f46e5;
+}
+.roadmap-step.upcoming .roadmap-step-marker {
+  background: var(--border, #f3f4f6);
+  color: var(--text-muted, #6b7280);
+}
+.roadmap-step.upcoming .roadmap-step-title,
+.roadmap-step.upcoming .roadmap-step-desc {
+  opacity: 0.7;
+}
