@@ -1970,81 +1970,6 @@ body {
   border-radius: 3px;
 }
 
-/* ── 直近AI診断バッジ ── */
-.diag-badge-wrapper {
-  padding: 14px 16px 4px;
-}
-.diag-badge-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted, #6b7280);
-  margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.diag-badge {
-  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-  border-radius: 12px;
-  padding: 14px 16px;
-  color: #fff;
-  margin-bottom: 4px;
-}
-.diag-badge-score {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-.diag-badge-stars {
-  font-size: 15px;
-  letter-spacing: 2px;
-  opacity: 0.95;
-}
-.diag-badge-num {
-  font-size: 26px;
-  font-weight: 700;
-  line-height: 1;
-}
-.diag-badge-num small {
-  font-size: 12px;
-  font-weight: 400;
-  opacity: 0.75;
-}
-.diag-badge-diff {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 20px;
-  background: rgba(255,255,255,0.2);
-}
-.diag-badge-diff.down {
-  background: rgba(0,0,0,0.18);
-}
-.diag-badge-comment {
-  font-size: 12px;
-  opacity: 0.9;
-  line-height: 1.55;
-  margin-bottom: 6px;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.diag-badge-date {
-  font-size: 10px;
-  opacity: 0.65;
-}
-.diag-score-badge {
-  font-size: 11px;
-  font-weight: 600;
-  background: var(--primary, #4f46e5);
-  color: #fff;
-  padding: 2px 8px;
-  border-radius: 20px;
-  flex-shrink: 0;
-}
-
 /* ── 理解度グラフ ── */
 .chart-container {
   padding: 4px 16px 8px;
@@ -2067,22 +1992,6 @@ body {
   background: #fef2f2;
   border-color: #f87171;
   color: #b91c1c;
-}
-.log-ai-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border, #f3f4f6);
-  flex-wrap: wrap;
-}
-.log-action-btn.ai-diag-btn {
-  color: var(--primary, #4f46e5);
-  border-color: var(--primary, #4f46e5);
-}
-.log-action-btn.ai-lesson-btn {
-  color: #0d9488;
-  border-color: #0d9488;
 }
 .log-action-btn:disabled {
   opacity: 0.5;
