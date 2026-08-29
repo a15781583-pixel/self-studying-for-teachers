@@ -1804,9 +1804,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  on('short-goal-list', 'input', () => {
-    students[currentIndex].data.shortTermGoals = collectGoalEntries();
-    saveStudentsTabs();
+  // ── 短期目標の変更を即時永続化 ──
+  // change を追加しているのは、goal-deadline-input（達成期限＝日付入力）が
+  // ブラウザによっては input だけでは捕捉できないケースがあるため（test-list と同様の対応）。
+  ['input', 'change'].forEach(evt => {
+    on('short-goal-list', evt, () => {
+      students[currentIndex].data.shortTermGoals = collectGoalEntries();
+      saveStudentsTabs();
+    });
   });
 
   /* タブ・データ管理ボタン */
