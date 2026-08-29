@@ -83,6 +83,134 @@ function parseGeminiResponse(data) {
   }
 }
 
+/* ===== 科目別エキスパートペルソナ定義 ===== */
+
+// 科目名 → 専門家ペルソナ文のマッピング。
+// splitSubjects() で分割された個々の科目名をキーとして参照する。
+const SUBJECT_EXPERT_PERSONAS = {
+  '算数':   '算数教育の専門家（計算・図形・文章題における「つまずきの構造分析」を得意とする）',
+  '数学':   '数学教育の専門家（計算・図形・文章題における「つまずきの構造分析」を得意とする）',
+  '国語':   '読解・記述指導のプロ（文章読解力の分解と記述式解答の添削指導を専門とする）',
+  '英語':   '英語4技能（聞く・話す・読む・書く）指導の専門家',
+  '理科':   '理科教育の専門家（実験・観察・原理理解のつながりを丁寧に橋渡しする指導を得意とする）',
+  '社会':   '社会科教育の専門家（歴史・地理・公民分野の背景理解と効果的な暗記法指導に強い）',
+};
+
+// マッピングに存在しない科目名が来た場合のフォールバック
+function getSubjectExpertPersona(subject) {
+  const key = (subject || '').trim();
+  return SUBJECT_EXPERT_PERSONAS[key] || `${key || '当該科目'}指導の専門家`;
+}
+
+/* ===== 目標乖離・逆算コンテキスト生成 ===== */
+
+// 短期目標のテキスト（自由記述）から期限らしき日付表記を抽出する簡易ヘルパー。
+// ※ 現状、短期目標データは構造化された「期限」フィールドを持たず自由記述テキストのため、
+//   正規表現によるベストエフォートの抽出で代替している。
+//   構造化フィールドを追加する場合は、本関数の呼び出し箇所を該当フィールド参照に置き換え、
+//   HTML（入力フォーム）／core（app-講師用AI作成.js）側の対応も別途必要になる。
+function extractDeadlineFromText(text) {
+  if (!text) return null;
+  const now = new Date();
+  const patterns = [
+    { re: /(\d{4})[\/年](\d{1,2})[\/月](\d{1,2})日?/, hasYear: true },  // 2026/6/1, 2026年6月1日
+    { re: /(\d{1,2})[\/月](\d{1,2})日/,               hasYear: false }, // 6/1, 6月1日（年省略）
+  ];
+  for (const { re, hasYear } of patterns) {
+    const m = text.match(re);
+    if (!m) continue;
+    const year  = hasYear ? Number(m[1]) : now.getFullYear();
+    const month = hasYear ? Number(m[2]) : Number(m[1]);
+    const day   = hasYear ? Number(m[3]) : Number(m[2]);
+    const dt = new Date(year, month - 1, day);
+    if (isNaN(dt.getTime())) continue;
+    // 年省略で既に過ぎた日付になった場合は、来年の日付と解釈する
+    if (!hasYear && dt < now) dt.setFullYear(dt.getFullYear() + 1);
+    return dt;
+  }
+  return null;
+}
+
+// 授業ログの日付間隔から、直近の平均的な授業頻度（週あたり回数）を推定する
+function estimateLessonsPerWeek(lessonLogs) {
+  if (!lessonLogs || lessonLogs.length < 2) return null;
+  const dates = lessonLogs
+    .map(l => new Date(l.date))
+    .filter(d => !isNaN(d.getTime()))
+    .sort((a, b) => a - b);
+  if (dates.length < 2) return null;
+  const spanDays = (dates[dates.length - 1] - dates[0]) / (1000 * 60 * 60 * 24);
+  if (spanDays <= 0) return null;
+  const perWeek = ((dates.length - 1) / spanDays) * 7;
+  return perWeek > 0 ? perWeek : null;
+}
+
+/**
+ * 目標乖離・逆算分析のコンテキストブロックを生成する。
+ * 短期目標／長期目標に対する現状（理解度傾向・スコア推移）の乖離と、
+ * 残り授業回数・残り期間から逆算した必要ペースの目安をテキスト化し、
+ * 診断・授業案いずれの buildPrompt にも差し込めるようにする。
+ *
+ * @param {object} formData     フォームデータ（goal, shortTermGoals 等を含む）
+ * @param {object|null} pastData  getStudentData() の戻り値
+ * @param {Array} [relevantLogs] 集計対象とする授業ログ（未指定時は pastData.lessonLogs 全件）
+ * @returns {string}
+ */
+function buildGoalGapContext(formData, pastData, relevantLogs) {
+  const logs = relevantLogs || (pastData ? pastData.lessonLogs : []) || [];
+
+  // 理解度の傾向（前半平均 → 後半平均）
+  const compValues = logs.map(l => parseComprehension(l.comprehension)).filter(v => v > 0);
+  let compTrendText = '記録が少なく傾向を算出できません';
+  if (compValues.length >= 2) {
+    const half   = Math.ceil(compValues.length / 2);
+    const avgOld = (compValues.slice(0, half).reduce((a, b) => a + b, 0) / half).toFixed(1);
+    const avgNew = (compValues.slice(-half).reduce((a, b) => a + b, 0) / half).toFixed(1);
+    const diff   = (Number(avgNew) - Number(avgOld)).toFixed(1);
+    const arrow  = Number(diff) > 0.5 ? '上昇傾向↑' : Number(diff) < -0.5 ? '低下傾向↓' : '横ばい→';
+    compTrendText = `${arrow}（前半平均 ${avgOld} → 後半平均 ${avgNew}、全${compValues.length}件）`;
+  }
+
+  // AI診断スコアの推移
+  const diagnostics = (pastData ? pastData.aiDiagnostics : []) || [];
+  let scoreDiffText = '診断履歴なし';
+  if (diagnostics.length > 1) {
+    const prev = diagnostics[diagnostics.length - 2];
+    const last = diagnostics[diagnostics.length - 1];
+    const d = num(last.overallScore) - num(prev.overallScore);
+    scoreDiffText = `${d >= 0 ? '+' : ''}${d}（前回 ${num(prev.overallScore)} → 直近 ${num(last.overallScore)}）`;
+  } else if (diagnostics.length === 1) {
+    scoreDiffText = `初回診断のみ（スコア ${num(diagnostics[0].overallScore)}）`;
+  }
+
+  // 短期目標テキストからの期限抽出 と 残り授業回数の逆算
+  const deadline = extractDeadlineFromText(formData.shortTermGoals);
+  const lessonsPerWeek = estimateLessonsPerWeek(logs);
+
+  const lines = [];
+  lines.push(`長期目標: ${formData.goal || '（未設定）'}`);
+  lines.push(`短期目標（期限・達成基準を含む場合はそのまま記載）: ${formData.shortTermGoals || '（未設定）'}`);
+  lines.push(`理解度の傾向: ${compTrendText}`);
+  lines.push(`AI診断スコアの推移: ${scoreDiffText}`);
+
+  if (deadline) {
+    const remainingDays = Math.ceil((deadline - new Date()) / (1000 * 60 * 60 * 24));
+    const deadlineLabel = `${deadline.getFullYear()}/${deadline.getMonth() + 1}/${deadline.getDate()}`;
+    lines.push(`短期目標の期限（テキストから自動抽出・目安）: ${deadlineLabel}（残り約${Math.max(remainingDays, 0)}日）`);
+    if (lessonsPerWeek) {
+      const remainingLessons = Math.max(1, Math.round((remainingDays / 7) * lessonsPerWeek));
+      lines.push(`過去の授業頻度（目安）: 週あたり約${lessonsPerWeek.toFixed(1)}回 → 期限までの残り授業回数の目安: 約${remainingLessons}回`);
+      lines.push('※上記回数は過去の授業間隔から機械的に算出した目安です。この残り回数で短期目標に到達可能なペースかどうかを判断してください。');
+    } else {
+      lines.push('残り授業回数: 過去の授業頻度データが不足しているため機械的な算出はできません。理解度傾向・スコア推移をもとに妥当な想定を置いて判断してください。');
+    }
+  } else {
+    lines.push('短期目標の期限: 本文からの自動抽出はできませんでした。短期目標の文中に期限や達成基準の記載があればそれを優先し、なければ理解度傾向・スコア推移から乖離の大小を定性的に判断してください。');
+  }
+
+  return lines.join('\n');
+}
+
 /* ===== コピー系ヘルパー（AI結果表示でのみ使用） ===== */
 
 function copyToClipboard(text, btnId, originalHTML) {
@@ -206,9 +334,17 @@ async function runDiagnosisGeneration(apiKey, formData, lessonDate, studentId, t
       })()
     : '初回診断のため比較なし';
 
+  const diagnosisSubjects = splitSubjects(formData.subjects);
+  const diagnosisPersonaIntro = diagnosisSubjects.length > 0
+    ? `あなたは以下の科目別エキスパートから成る診断チームです。\n` +
+      diagnosisSubjects.map(s => `・${s}: ${getSubjectExpertPersona(s)}`).join('\n')
+    : 'あなたはプロの教育コンサルタント・塾講師です。';
+
+  const goalGapContext = buildGoalGapContext(formData, pastData);
+
   const buildPrompt = () => `
-あなたはプロの教育コンサルタント・塾講師です。
-生徒の基本情報、過去の学習変化、今回の授業内容を踏まえ、保護者も納得する高品質な診断レポートを作成してください。
+${diagnosisPersonaIntro}
+このチームで、生徒の基本情報、過去の学習変化、今回の授業内容を踏まえ、保護者も納得する高品質な診断レポートを作成してください。
 
 【生徒情報】
 名前: ${formData.name}
@@ -242,14 +378,19 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehen
 講師メモ: ${formData.notes}
 抽象化・転用メモ: ${formData.takeaways}
 
+【目標乖離・逆算分析】
+${goalGapContext}
+
 【指示】
 - 学習傾向分析の数値（理解度の傾向・スコア変化）を必ず言及し、変化を具体的に評価してください。
 - 過去のデータと比較し、「成長できた点」「継続して取り組む課題」を具体的に述べてください。
 - 複数の科目が含まれる場合は、全体をぼやかさず「【英語】〇〇」「【数学】〇〇」のように科目ごとに明確に見出しをつけて具体的に診断してください。
+- 科目ごとの診断は、その科目の専門家ペルソナの視点・専門用語で記述すること。
 - 次回授業プランは今回の課題を踏まえ、科目ごとに単元名・教材名・つまずきやすい箇所を明記してください。
 - 保護者向けメッセージは丁寧で前向き、そのまま面談や連絡帳で渡せるクオリティにしてください。
 - 短期目標の達成状況・進捗を具体的に評価し、「今すぐ取り組むべきこと」に反映してください。
 - 週間プラン・月間プランは、科目ごとのバランスを考慮し、短期目標の達成ステップと長期目標への道筋を構成してください。
+- 【目標乖離・逆算分析】の内容をもとに、現ペースで長期目標に到達可能かを判定し、乖離があれば具体的な立て直し策を示すこと。
 `.trim();
 
   await runAiGeneration(apiKey, triggerBtn, {
@@ -278,12 +419,22 @@ ${index + 1}. [${log.date}] 科目: ${log.subject} / 理解度: ${parseComprehen
         },
         instructorAdvice: { type: 'STRING' },
         parentMessage:    { type: 'STRING' },
-        urgentAction:     { type: 'STRING' }
+        urgentAction:     { type: 'STRING' },
+        goalGapAnalysis:  { type: 'STRING' },
+        backwardPlan: {
+          type: 'OBJECT',
+          properties: {
+            milestones:   { type: 'ARRAY', items: { type: 'STRING' } },
+            requiredPace: { type: 'STRING' }
+          },
+          required: ['milestones', 'requiredPace']
+        }
       },
       required: [
         'overallScore', 'overallComment', 'strengths', 'improvements',
         'weeklyPlan', 'monthlyPlan', 'nextLessonPlan',
-        'instructorAdvice', 'parentMessage', 'urgentAction'
+        'instructorAdvice', 'parentMessage', 'urgentAction',
+        'goalGapAnalysis', 'backwardPlan'
       ]
     },
     onSuccess: (result, capturedIndex) => {
@@ -309,8 +460,15 @@ async function runLessonPlanGeneration(apiKey, formData, lessonDate, studentId, 
     : [];
   const recentLogs = (sameSubjectLogs.length > 0 ? sameSubjectLogs : (pastData?.lessonLogs || [])).slice(-5);
 
+  const lessonPersona = getSubjectExpertPersona(targetSubject);
+  const goalGapContext = buildGoalGapContext(
+    formData,
+    pastData,
+    sameSubjectLogs.length > 0 ? sameSubjectLogs : (pastData?.lessonLogs || [])
+  );
+
   const buildPrompt = () => `
-あなたはベテラン塾講師です。
+あなたは${lessonPersona}であり、経験豊富なベテラン塾講師でもあります。
 以下の授業履歴と今回の指導記録をもとに、次回授業の具体的な指導案を作成してください。
 総合診断・保護者向けコメント・月間計画は不要です。授業計画のみに特化して回答してください。
 
@@ -339,6 +497,9 @@ ${recentLogs.length > 0
 講師メモ: ${formData.notes}
 抽象化・転用メモ: ${formData.takeaways}
 
+【目標乖離・逆算分析】
+${goalGapContext}
+
 【指示】
 - 今回作成する授業案は「${formData.subjects}」科目のみを対象とします。今回の授業内容や履歴に他科目の内容が混在していても、次回授業案には対象科目以外の内容を一切含めないでください。
 - 今回の理解度・課題を踏まえ、次回の授業目標を1文で端的に示してください。
@@ -346,22 +507,24 @@ ${recentLogs.length > 0
 - 生徒がつまずきやすい箇所と講師がとるべき対処法を明記してください。
 - 指導のヒントとして、この生徒への効果的なアプローチを1〜2文で示してください。
 - 短期目標の期限が近い場合は、その達成を最優先した集中指導プランを示してください。
+- 今回の授業が目標達成の逆算スケジュール上どの位置づけかを明記し、遅れがあれば優先順位を明示すること。
 `.trim();
 
   await runAiGeneration(apiKey, triggerBtn, {
     loadingTitle: '次回授業案を作成中...',
     buildPrompt,
-    maxOutputTokens: 2048,
+    maxOutputTokens: 2560,
     errorLabel: '次回授業案の生成',
     schema: {
       type: 'OBJECT',
       properties: {
-        objective:    { type: 'STRING' },
-        keyPoints:    { type: 'ARRAY', items: { type: 'STRING' } },
-        pitfalls:     { type: 'ARRAY', items: { type: 'STRING' } },
-        teachingTips: { type: 'STRING' }
+        objective:     { type: 'STRING' },
+        keyPoints:     { type: 'ARRAY', items: { type: 'STRING' } },
+        pitfalls:      { type: 'ARRAY', items: { type: 'STRING' } },
+        teachingTips:  { type: 'STRING' },
+        goalAlignment: { type: 'STRING' }
       },
-      required: ['objective', 'keyPoints', 'pitfalls', 'teachingTips']
+      required: ['objective', 'keyPoints', 'pitfalls', 'teachingTips', 'goalAlignment']
     },
     onSuccess: (result, capturedIndex) => {
       students[capturedIndex].lessonPlanResult  = result;
@@ -427,6 +590,12 @@ function renderLessonPlanResult(d, formData) {
       <div class="card-label"><i class="ti ti-bulb"></i> 指導のヒント</div>
       <div class="card-body">${escapeHtml(d.teachingTips || '')}</div>
     </div>
+
+    <!-- 目標との関連 -->
+    <div class="result-card card-neutral">
+      <div class="card-label"><i class="ti ti-flag-3"></i> 目標との関連</div>
+      <div class="card-body">${escapeHtml(d.goalAlignment || '')}</div>
+    </div>
   `;
 
   document.getElementById('state-result').innerHTML = html;
@@ -445,6 +614,9 @@ ${(d.pitfalls || []).map(p => `・${p}`).join('\n')}
 
 ■ 指導のヒント
 ${d.teachingTips || ''}
+
+■ 目標との関連
+${d.goalAlignment || ''}
 `.trim());
 
   const switchBtn = document.getElementById('switch-to-diagnosis-btn');
@@ -505,6 +677,29 @@ function renderResult(d, formData) {
       </div>
       <div class="card-body">${escapeHtml(d.urgentAction || '')}</div>
     </div>
+
+    <!-- 目標乖離分析 -->
+    <div class="result-card card-neutral">
+      <div class="card-label"><i class="ti ti-gauge"></i> 目標乖離分析</div>
+      <div class="card-body">${escapeHtml(d.goalGapAnalysis || '')}</div>
+    </div>
+
+    <!-- 逆算ロードマップ -->
+    ${d.backwardPlan ? `
+    <div class="result-card card-neutral">
+      <div class="card-label"><i class="ti ti-route"></i> 逆算ロードマップ</div>
+      <div class="card-body">
+        ${(d.backwardPlan.milestones || []).length > 0 ? `
+          <div style="margin-bottom:8px">
+            <div style="font-size:11px;font-weight:600;color:var(--text-muted,#6b7280);margin-bottom:4px">マイルストーン</div>
+            <ul class="diag-list">${(d.backwardPlan.milestones || []).map(m => `<li>${escapeHtml(m)}</li>`).join('')}</ul>
+          </div>` : ''}
+        <div>
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted,#6b7280);margin-bottom:2px">必要ペース</div>
+          <div>${escapeHtml(d.backwardPlan.requiredPace || '')}</div>
+        </div>
+      </div>
+    </div>` : ''}
 
     <!-- 強み・改善点 -->
     <div class="two-col">
@@ -585,6 +780,14 @@ ${d.overallComment || ''}
 
 ■ 今すぐ取り組むべきこと
 ${d.urgentAction || ''}
+
+■ 目標乖離分析
+${d.goalGapAnalysis || ''}
+
+■ 逆算ロードマップ
+${d.backwardPlan ? `マイルストーン:
+${(d.backwardPlan.milestones || []).map(m => `・${m}`).join('\n')}
+必要ペース: ${d.backwardPlan.requiredPace || ''}` : '（なし）'}
 
 ■ 強み
 ${(d.strengths || []).map(s => `・${s}`).join('\n')}
