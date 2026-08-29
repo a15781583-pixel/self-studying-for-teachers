@@ -169,7 +169,7 @@ function extractDeadlineFromText(text) {
   const now = new Date();
   const patterns = [
     { re: /(\d{4})[\/年](\d{1,2})[\/月](\d{1,2})日?/, hasYear: true },  // 2026/6/1, 2026年6月1日
-    { re: /(\d{1,2})[\/月](\d{1,2})日/,               hasYear: false }, // 6/1, 6月1日（年省略）
+    { re: /(\d{1,2})[\/月](\d{1,2})日?/,              hasYear: false }, // 6/1, 6月1日（年省略）
   ];
   for (const { re, hasYear } of patterns) {
     const m = text.match(re);
@@ -669,8 +669,9 @@ ${groundingInfo}
     },
     onSuccess: (result, capturedIndex) => {
       addAIDiagnostics(studentId, result);
-      students[capturedIndex].result         = result;
-      students[capturedIndex].lastResultType = 'diagnosis';
+      students[capturedIndex].result            = result;
+      students[capturedIndex].diagnosisSubjects = formData.subjects; // 追加：生成時の対象科目（複数科目文字列）を保持
+      students[capturedIndex].lastResultType    = 'diagnosis';
 
       // Race Condition 対策: 生成中に別の生徒タブへ切り替わっていた場合、
       // 元のタブの結果を今表示中の画面へ描画してしまわないようにスキップする。
@@ -903,7 +904,9 @@ ${(d.assignedSelfStudy || []).length > 0 ? selfStudyTasksToText(d.assignedSelfSt
       const s = students[currentIndex];
       if (s.result) {
         s.lastResultType = 'diagnosis';
-        renderResult(s.result, buildFormData());
+        const fd = buildFormData();
+        if (s.diagnosisSubjects) fd.subjects = s.diagnosisSubjects;
+        renderResult(s.result, fd);
         showState('state-result');
       }
     });
