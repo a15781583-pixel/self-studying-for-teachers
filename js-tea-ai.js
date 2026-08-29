@@ -87,6 +87,12 @@ function parseGeminiResponse(data) {
 
 // 科目名 → 専門家ペルソナ文のマッピング。
 // splitSubjects() で分割された個々の科目名をキーとして参照する。
+// ※ 現状「算数・数学・国語・英語・理科・社会」の6科目のみ定義。
+//   フォーム側で選択可能な科目名（表記ゆれ・細分化科目を含む）が
+//   このキーと過不足なく対応しているか要確認。getSubjectExpertPersona()
+//   側で前方一致・部分一致によるフォールバックは行っているが、
+//   フォームにこの6科目に含まれない科目（例："情報"等）が存在する場合は
+//   汎用ペルソナに落ちるため、必要に応じてキーを追加すること。
 const SUBJECT_EXPERT_PERSONAS = {
   '算数':   '算数教育の専門家（計算・図形・文章題における「つまずきの構造分析」を得意とする）',
   '数学':   '大学受験数学教育の専門家（計算・図形・文章題における「つまずきの構造分析」を得意とする）',
@@ -96,10 +102,29 @@ const SUBJECT_EXPERT_PERSONAS = {
   '社会':   '社会科教育の専門家（歴史・地理・公民分野の背景理解と効果的な暗記法指導に強い）',
 };
 
-// マッピングに存在しない科目名が来た場合のフォールバック
+// 科目名からエキスパートペルソナを引く。
+// - まず trim + NFKC正規化（全角英数・記号を半角化）した上で完全一致を試みる
+// - 「数学(数III)」「英語（リスニング）」のような付加情報付きの科目名や、
+//   SUBJECT_EXPERT_PERSONAS のキーとの表記ゆれを吸収するため、
+//   完全一致で見つからない場合は前方一致→部分一致の順でフォールバックする
+// - マッピングに存在しない科目名の場合は汎用ペルソナ文字列を返す
 function getSubjectExpertPersona(subject) {
-  const key = (subject || '').trim();
-  return SUBJECT_EXPERT_PERSONAS[key] || `${key || '当該科目'}指導の専門家`;
+  const raw = (subject || '').trim();
+  if (!raw) return '当該科目指導の専門家';
+
+  const normalized = raw.normalize('NFKC');
+
+  if (SUBJECT_EXPERT_PERSONAS[normalized]) return SUBJECT_EXPERT_PERSONAS[normalized];
+  if (SUBJECT_EXPERT_PERSONAS[raw])        return SUBJECT_EXPERT_PERSONAS[raw];
+
+  const keys = Object.keys(SUBJECT_EXPERT_PERSONAS);
+  const startsWithKey = keys.find(k => normalized.startsWith(k));
+  if (startsWithKey) return SUBJECT_EXPERT_PERSONAS[startsWithKey];
+
+  const includesKey = keys.find(k => normalized.includes(k));
+  if (includesKey) return SUBJECT_EXPERT_PERSONAS[includesKey];
+
+  return `${raw}指導の専門家`;
 }
 
 /* ===== 目標乖離・逆算コンテキスト生成 ===== */
@@ -453,7 +478,10 @@ ${goalGapContext}
 
 async function runLessonPlanGeneration(apiKey, formData, lessonDate, studentId, triggerBtn) {
   const pastData      = getStudentData(studentId);
-  const targetSubject = formData.subjects; // ③でボタンの科目に上書き済み
+  // ③でボタンの科目に上書き済みの前提だが、その前提が崩れて複数科目文字列が
+  // 渡ってきた場合でも科目別エキスパート性が失われないよう、
+  // splitSubjects() で単一科目に正規化してから使用する
+  const targetSubject = splitSubjects(formData.subjects)[0] || formData.subjects;
 
   const sameSubjectLogs = pastData
     ? pastData.lessonLogs.filter(log => splitSubjects(log.subject).includes(targetSubject))
