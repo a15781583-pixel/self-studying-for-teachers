@@ -212,8 +212,6 @@ function createStudent() {
     data,
     result:           null,          // AI診断レポート結果
     lessonPlanResult: null,          // 次回授業案の結果
-    lessonPlanContext: null,         // 授業案を作った時の入力内容（再設計に使う）
-    lessonPlanChat:   [],            // 授業案についてのチャット履歴 [{role:'user'|'ai', text}]
     lastResultType:   'diagnosis',   // 'diagnosis' | 'lessonplan' — 右パネルに最後に表示した種類
     mode:             'profile',     // 'profile' | 'report' | 'history'
     modeInitialized:  false,         // 初回タブ表示時に detectMode() で上書きするフラグ
@@ -262,8 +260,6 @@ function initStudents() {
           data:            t.data           || {},
           result:          null,
           lessonPlanResult: null,
-          lessonPlanContext: null,
-          lessonPlanChat:  [],
           lastResultType:  t.lastResultType || 'diagnosis',
           mode:            t.mode           || 'profile',
           modeInitialized: typeof t.modeInitialized === 'boolean' ? t.modeInitialized : false,
