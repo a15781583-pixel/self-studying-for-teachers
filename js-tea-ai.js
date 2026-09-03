@@ -181,8 +181,9 @@ function extractDeadlineFromText(text) {
   if (!text) return null;
   const now = new Date();
   const patterns = [
+    { re: /(\d{4})-(\d{1,2})-(\d{1,2})/,               hasYear: true },  // 2026-6-1（ISO形式・date inputからの入力）
     { re: /(\d{4})[\/年](\d{1,2})[\/月](\d{1,2})日?/, hasYear: true },  // 2026/6/1, 2026年6月1日
-    { re: /(\d{1,2})[\/月](\d{1,2})日?/,              hasYear: false }, // 6/1, 6月1日（年省略）
+    { re: /(\d{1,2})[\/\-月](\d{1,2})日?/,             hasYear: false }, // 6/1, 6-1, 6月1日（年省略）
   ];
   for (const { re, hasYear } of patterns) {
     const m = text.match(re);
@@ -1230,6 +1231,40 @@ function initLessonPlanChatUI() {
   redoBtn?.addEventListener('click', () => runLessonPlanRedesign(redoBtn));
 }
 
+/**
+ * 目標乖離分析のテキストから、乖離度が「危険水域」相当かどうかを簡易判定する。
+ * AIレスポンス（goalGapAnalysis）は自由記述の STRING のみで乖離度を示す
+ * 数値・enum フィールドを持たないため、深刻な遅れ・危険信号を示す
+ * キーワードの有無で card-goal-gap の is-critical 付与を切り替える。
+ * （将来的にスキーマ側へ severity 相当のフィールドを追加できれば、
+ *   このキーワード判定に代えてより確実な判定に置き換えられる）
+ */
+function isGoalGapCritical(text) {
+  if (!text) return false;
+  const criticalKeywords = [
+    '危険水域', '致命的', '深刻', '大幅に乖離', '大幅な遅れ',
+    '間に合わない', '赤信号', '重大な遅れ', '極めて厳しい',
+    '手遅れ', '挽回が困難', '要注意水準'
+  ];
+  return criticalKeywords.some(kw => text.includes(kw));
+}
+
+/**
+ * 逆算ロードマップの milestones（STRING配列）を roadmap-step 付きの
+ * タイムラインHTMLへ展開する。
+ * milestones自体には日付・達成状態のデータは含まれないため、
+ * 「直近で取り組むべき最初のマイルストーン」を current、
+ * それ以降を upcoming として時系列表示する
+ * （達成済みマイルストーンを示す completed 状態は、
+ *   将来 milestones が日付付きの構造化データになった場合に備えた区分）。
+ */
+function renderRoadmapStepsHTML(milestones) {
+  return (milestones || []).map((m, idx) => {
+    const status = idx === 0 ? 'current' : 'upcoming';
+    return `<li class="roadmap-step ${status}">${escapeHtml(m)}</li>`;
+  }).join('');
+}
+
 function renderResult(d, formData) {
   const { score: clampedScore, stars } = renderStars(d.overallScore);
   const subLine = [formData.grade, formData.subjects]
@@ -1277,20 +1312,20 @@ function renderResult(d, formData) {
     </div>
 
     <!-- 目標乖離分析 -->
-    <div class="result-card card-neutral">
+    <div class="result-card card-goal-gap${isGoalGapCritical(d.goalGapAnalysis) ? ' is-critical' : ''}">
       <div class="card-label"><i class="ti ti-gauge"></i> 目標乖離分析</div>
       <div class="card-body">${escapeHtml(d.goalGapAnalysis || '')}</div>
     </div>
 
     <!-- 逆算ロードマップ -->
     ${d.backwardPlan ? `
-    <div class="result-card card-neutral">
+    <div class="result-card card-roadmap">
       <div class="card-label"><i class="ti ti-route"></i> 逆算ロードマップ</div>
       <div class="card-body">
         ${(d.backwardPlan.milestones || []).length > 0 ? `
           <div style="margin-bottom:8px">
             <div style="font-size:11px;font-weight:600;color:var(--text-muted,#6b7280);margin-bottom:4px">マイルストーン</div>
-            <ul class="diag-list">${(d.backwardPlan.milestones || []).map(m => `<li>${escapeHtml(m)}</li>`).join('')}</ul>
+            <ol class="roadmap-timeline">${renderRoadmapStepsHTML(d.backwardPlan.milestones)}</ol>
           </div>` : ''}
         <div>
           <div style="font-size:11px;font-weight:600;color:var(--text-muted,#6b7280);margin-bottom:2px">必要ペース</div>
