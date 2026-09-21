@@ -29,7 +29,7 @@
 
 /* ===== Gemini API 設定・通信 ===== */
 
-const GEMINI_MODEL    = 'gemini-3.6-flash';
+const GEMINI_MODEL    = 'gemini-3.8-flash';
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent`;
 
 // requestBody に加えて options（第3引数）で挙動を制御する。
